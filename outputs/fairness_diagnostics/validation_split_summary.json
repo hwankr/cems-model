@@ -1,0 +1,36 @@
+{
+  "current_repository_model": {
+    "type": "deterministic heuristic baseline, not LightGBM",
+    "train_test_split": "no random split; current script scores rows where is_validation_target_clean is true",
+    "validation_start": "2026-04-01",
+    "validation_end": "2026-06-23",
+    "validation_rows": 1428,
+    "building_count": 17
+  },
+  "diagnostic_lightgbm_quantile": {
+    "split": "expanding walk-forward by date",
+    "first_prediction_date": "2026-04-15",
+    "last_prediction_date": "2026-06-23",
+    "min_train_days_before_first_prediction": 14,
+    "eval_rows": 1190,
+    "train_rows_first_fold": 238,
+    "train_rows_last_fold": 1411,
+    "features_excluded_as_leaky": [
+      "baseline_school_shape_kwh_observed_norm",
+      "school_total_daily_kwh",
+      "school_total_day_weight_observed_month",
+      "school_total_is_usable",
+      "school_total_month_observed_completeness",
+      "school_total_observed_day_count",
+      "school_total_observed_month_sum_kwh"
+    ],
+    "weather_features_available": false,
+    "hourly_time_of_day_available": false
+  },
+  "panel": {
+    "rows": 1547,
+    "date_start": "2026-04-01",
+    "date_end": "2026-06-30",
+    "building_count": 17
+  }
+}

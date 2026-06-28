@@ -1,0 +1,11 @@
+﻿quantile,prediction_column,monotone_repaired,pinball_loss_kwh
+0.05,pred_lgbm_q05_kwh,False,25.704330554041654
+0.05,pred_lgbm_q05_kwh_monotone,True,25.104558458158
+0.1,pred_lgbm_q10_kwh,False,37.43229601466349
+0.1,pred_lgbm_q10_kwh_monotone,True,37.366973514061044
+0.5,pred_lgbm_q50_kwh,False,68.10213071533188
+0.5,pred_lgbm_q50_kwh_monotone,True,67.52315772107033
+0.9,pred_lgbm_q90_kwh,False,35.88217124154327
+0.9,pred_lgbm_q90_kwh_monotone,True,36.814884288776874
+0.95,pred_lgbm_q95_kwh,False,27.294706456041542
+0.95,pred_lgbm_q95_kwh_monotone,True,24.519017678799152

@@ -1,0 +1,6 @@
+﻿quantile,prediction_column,pinball_loss_kwh
+0.05,pred_lightgbm_q05_kwh,25.51016356622272
+0.1,pred_lightgbm_q10_kwh,37.53498344534335
+0.5,pred_lightgbm_q50_kwh,67.15613862169958
+0.9,pred_lightgbm_q90_kwh,37.31313942584448
+0.95,pred_lightgbm_q95_kwh,26.940116589912193

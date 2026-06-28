@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CEMS 실시간 기준선 모델</title>
+    <link rel="stylesheet" href="./styles.css?v=ml-baseline-v1" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">CEMS baseline viewer</p>
+          <h1>실시간 전력 예측 기준선</h1>
+        </div>
+        <div class="status" id="loadStatus">CSV 읽는 중</div>
+      </header>
+
+      <section class="toolbar" aria-label="필터">
+        <div class="field">
+          <label for="methodSelect">모델</label>
+          <select id="methodSelect">
+            <option value="pred_realtime_uniform_daily_kwh">실시간 기준선: 월 프로파일 균등 일할</option>
+            <option value="pred_weekday_recent_kwh">요일+최근사용량 모델</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="buildingSelect">건물</label>
+          <select id="buildingSelect"></select>
+        </div>
+        <div class="field">
+          <label for="monthSelect">월</label>
+          <select id="monthSelect"></select>
+        </div>
+        <button type="button" id="resetButton">초기화</button>
+      </section>
+
+      <section class="model-contract" aria-label="실시간 예측 조건">
+        <div class="contract-title">
+          <strong>baseline-v2-realtime / weekday_recent_v1</strong>
+          <span>2026년 4월부터는 실시간 운영 상황으로 평가합니다.</span>
+        </div>
+        <div class="contract-grid">
+          <article>
+            <span>학습 기준</span>
+            <strong>2026년 3월 이전</strong>
+            <p>2024~2025년 같은 월의 건물별 월 전력 프로파일을 사용합니다.</p>
+          </article>
+          <article>
+            <span>예측 구간</span>
+            <strong>2026년 4월~6월</strong>
+            <p>검증은 2026-04-01부터 2026-06-23까지의 실제 건물 일별 전력과 비교합니다.</p>
+          </article>
+          <article>
+            <span>사용한 입력</span>
+            <strong>건물 월 프로파일 + 이전 사용량</strong>
+            <p>기준선은 월 균등 일할을 쓰고, 새 모델은 건물별 이전 일별 사용량을 함께 사용합니다.</p>
+          </article>
+          <article>
+            <span>제외한 입력</span>
+            <strong>4~6월 학교 일별 실측 흐름</strong>
+            <p>예측 대상 기간의 실제 학교 전체 일별 총량과 일별 비중은 사용하지 않습니다.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="kpis" id="kpiGrid" aria-label="요약 지표"></section>
+
+      <section class="panel metric-help" aria-label="지표 도움말">
+        <div class="panel-heading">
+          <div>
+            <h2>지표 읽는 법</h2>
+            <p>오차 지표는 낮을수록 좋고, Bias는 0에 가까울수록 좋습니다.</p>
+          </div>
+        </div>
+        <p class="realtime-note">
+          최근 사용량은 예측일 이전 데이터만 사용합니다.
+          2026년 4~6월 학교 전체 일별 실측 흐름 배분 방식은 데이터 누수 가능성이 있어 기준선과 새 모델 입력에서 제외했습니다.
+        </p>
+        <div class="metric-help-grid">
+          <article>
+            <strong>MAE</strong>
+            <p>하루-건물 단위로 평균 몇 kWh 빗나갔는지 보는 값입니다.</p>
+          </article>
+          <article>
+            <strong>RMSE</strong>
+            <p>큰 오차에 더 민감합니다. MAE보다 많이 크면 특정 날짜에서 크게 틀린 것입니다.</p>
+          </article>
+          <article>
+            <strong>MAPE</strong>
+            <p>사용량이 낮은 날짜에는 분모가 작아 크게 튑니다. 이 프로젝트에서는 MAPE는 주력 지표로 쓰지 않습니다.</p>
+          </article>
+          <article>
+            <strong>WAPE</strong>
+            <p>전체 절대오차를 전체 실제 사용량으로 나눈 값입니다. 공정성 baseline의 점 정확도는 이 값으로 봅니다.</p>
+          </article>
+          <article>
+            <strong>Bias</strong>
+            <p>예측 방향의 치우침입니다. 양수는 과대예측, 음수는 과소예측입니다.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel model-explainer" aria-label="모델 작동 방식">
+        <div class="panel-heading">
+          <div>
+            <h2>모델 작동 방식</h2>
+            <p>웹사이트만 보고도 두 예측 모델의 입력, 계산 방식, 데이터 누수 방지 규칙을 확인할 수 있습니다.</p>
+          </div>
+        </div>
+
+        <div class="model-summary-grid">
+          <article>
+            <span>기준 모델</span>
+            <strong>실시간 기준선: 월 프로파일 균등 일할</strong>
+            <p>
+              건물별 월 기준 사용량을 해당 월 날짜 수로 나눕니다.
+              예를 들어 월 기준값이 30,000 kWh이고 30일짜리 월이면 하루 예측값은 1,000 kWh입니다.
+            </p>
+          </article>
+          <article>
+            <span>새 모델</span>
+            <strong>요일+최근사용량 모델</strong>
+            <p>
+              월 프로파일 균등 일할 값을 기본값으로 두고, 같은 건물의 전일 사용량과 최근 며칠 흐름을 섞어
+              하루 예측값을 조정합니다.
+            </p>
+          </article>
+          <article>
+            <span>비교용 머신러닝 모델</span>
+            <strong>LightGBM q50 walk-forward</strong>
+            <p>
+              사람이 정한 고정 가중치 대신 과거 검증일 데이터를 학습해 다음 날짜를 예측합니다.
+              현재 변수만으로 기존 규칙 기반 baseline보다 지표가 얼마나 나아지는지 확인하기 위한 모델입니다.
+            </p>
+          </article>
+        </div>
+
+        <div class="leakage-rule">
+          <div>
+            <span>데이터 사용 시점</span>
+            <strong>2026-04-10 예측에는 2026-04-09까지</strong>
+          </div>
+          <p>
+            당일 실제값과 이후 값은 사용하지 않습니다. 최근 사용량 feature는 항상 예측일보다 앞선 날짜에서만
+            계산합니다. 학교 전체 일별 실측 흐름, 학교 전체 일별 총량, 학교 전체 일별 비중도 예측 입력에서
+            제외합니다.
+          </p>
+        </div>
+
+        <div class="model-detail-grid">
+          <article>
+            <h3>입력 feature</h3>
+            <ul>
+              <li>월 기준값: `profile_monthly_kwh_mean`, `calendar_days_in_month`, 월 프로파일 균등 일할</li>
+              <li>날짜 정보: 요일, 주말 여부, 월, 일자</li>
+              <li>최근 사용량: 전일 사용량, 최근 3일 평균, 최근 7일 평균, 전주 같은 요일</li>
+              <li>과거 요일 패턴: 2026년 3월 이전 건물별 요일 패턴이 있으면 사용</li>
+            </ul>
+          </article>
+
+          <article>
+            <h3>fallback 규칙</h3>
+            <ul>
+              <li>초반 날짜처럼 최근값이 부족하면 월 기준값으로 대신 채웁니다.</li>
+              <li>과거 같은 월/요일 패턴이 부족하면 건물 월 평균으로 대신합니다.</li>
+              <li>예측값은 음수가 되지 않도록 0 이상으로 제한합니다.</li>
+              <li>이번 체크아웃에는 2026년 3월 이전 건물별 일별 행이 없어 요일 패턴은 월 기준값으로 fallback됩니다.</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="weight-grid" aria-label="요일+최근사용량 모델 가중치">
+          <article>
+            <h3>평일 가중치</h3>
+            <dl>
+              <div><dt>월 균등 기준값</dt><dd>10%</dd></div>
+              <div><dt>요일 패턴값</dt><dd>10%</dd></div>
+              <div><dt>전일 사용량</dt><dd>30%</dd></div>
+              <div><dt>최근 3일 평균</dt><dd>25%</dd></div>
+              <div><dt>최근 7일 평균</dt><dd>15%</dd></div>
+              <div><dt>전주 같은 요일</dt><dd>10%</dd></div>
+            </dl>
+          </article>
+          <article>
+            <h3>주말 가중치</h3>
+            <dl>
+              <div><dt>월 균등 기준값</dt><dd>15%</dd></div>
+              <div><dt>요일 패턴값</dt><dd>15%</dd></div>
+              <div><dt>전일 사용량</dt><dd>15%</dd></div>
+              <div><dt>최근 3일 평균</dt><dd>10%</dd></div>
+              <div><dt>최근 7일 평균</dt><dd>10%</dd></div>
+              <div><dt>전주 같은 요일</dt><dd>35%</dd></div>
+            </dl>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel fairness-panel" aria-label="공정성 진단">
+        <div class="panel-heading">
+          <div>
+            <h2>공정성 진단</h2>
+            <p>이 모델을 에너지 절약 경쟁의 self-relative baseline으로 써도 되는지 검증합니다.</p>
+          </div>
+          <strong class="verdict-badge">공정성 baseline 판정: 아직 신뢰 불가</strong>
+        </div>
+
+        <div class="fairness-summary-grid" id="fairnessKpis">
+          <article>
+            <span>검증 방식</span>
+            <strong>walk-forward</strong>
+            <p>과거 데이터로 다음 날짜를 예측합니다. random shuffle은 시계열 누수라 쓰지 않습니다.</p>
+          </article>
+          <article>
+            <span>naive baseline 대비</span>
+            <strong>비교 필요</strong>
+            <p>지난주 같은 요일 같은 단순 기준선을 못 이기면 모델이 일을 못 하는 것입니다.</p>
+          </article>
+          <article>
+            <span>calibration</span>
+            <strong>90% 예측구간 확인</strong>
+            <p>90% 구간이면 실제값도 약 90% 들어와야 합니다. 낮으면 사용자를 부당하게 평가할 수 있습니다.</p>
+          </article>
+          <article>
+            <span>잔차 무편향성</span>
+            <strong>0 근처가 목표</strong>
+            <p>잔차가 요일, 주말, 사용량 규모, 건물군과 계속 엮이면 공정성 기준선으로 위험합니다.</p>
+          </article>
+        </div>
+
+        <div class="plain-explanation">
+          <strong>쉽게 말하면</strong>
+          <p>
+            기준선은 "이 조건이면 원래 이 정도는 쓸 건물"이라는 출발선입니다.
+            출발선이 너무 낮으면 그 건물은 절약하기 쉬워 보이고, 너무 높으면 절약해도 불리해집니다.
+            그래서 평균 오차보다 bias, coverage, 그룹 편향을 먼저 봅니다.
+          </p>
+        </div>
+
+        <div class="fairness-grid">
+          <article>
+            <h3>모델 비교</h3>
+            <div class="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>모델</th>
+                    <th>WAPE</th>
+                    <th>Bias</th>
+                    <th>MAE</th>
+                  </tr>
+                </thead>
+                <tbody id="fairnessModelBody"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article>
+            <h3>calibration / coverage</h3>
+            <div class="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>구간</th>
+                    <th>명목</th>
+                    <th>실제</th>
+                    <th>차이</th>
+                  </tr>
+                </thead>
+                <tbody id="coverageBody"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article>
+            <h3>pinball loss</h3>
+            <div class="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>분위수</th>
+                    <th>loss</th>
+                  </tr>
+                </thead>
+                <tbody id="pinballBody"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article>
+            <h3>잔차 무편향성</h3>
+            <div class="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>요인</th>
+                    <th>Spearman r</th>
+                    <th>p-value</th>
+                  </tr>
+                </thead>
+                <tbody id="residualCorrelationBody"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+
+        <div class="bias-strip">
+          <article>
+            <h3>과소예측 건물</h3>
+            <div id="underBiasList" class="bias-list"></div>
+          </article>
+          <article>
+            <h3>과대예측 건물</h3>
+            <div id="overBiasList" class="bias-list"></div>
+          </article>
+        </div>
+
+        <p class="fairness-note">
+          현재 입력에는 기온, 습도, 강수량, 방학, 시간대 feature가 없습니다. 따라서 더우면 냉방 사용량이 증가하는지 같은
+          SHAP 방향성은 아직 완전하게 검증할 수 없습니다.
+        </p>
+      </section>
+
+      <section class="main-grid">
+        <section class="panel chart-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>일별 실제값 / 예측값</h2>
+              <p id="chartSubtitle">검증 구간</p>
+            </div>
+            <div class="legend">
+              <span><i class="swatch actual"></i>실제</span>
+              <span><i class="swatch predicted"></i>예측</span>
+            </div>
+          </div>
+          <div class="chart" id="dailyChart"></div>
+          <div class="daily-values">
+            <div class="daily-values-heading">
+              <strong>일별 예측값</strong>
+              <span>선택한 필터 기준 합계</span>
+            </div>
+            <div class="table-wrap daily-values-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>날짜</th>
+                    <th>실제값</th>
+                    <th>예측값</th>
+                    <th>오차</th>
+                  </tr>
+                </thead>
+                <tbody id="dailyPredictionBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>월별 성능</h2>
+              <p>검증 대상 행 기준</p>
+            </div>
+          </div>
+          <div class="comparison" id="monthComparison"></div>
+        </section>
+      </section>
+
+      <section class="table-grid">
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>건물별 지표</h2>
+              <p>MAE가 큰 순서</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>건물</th>
+                  <th>MAE</th>
+                  <th>RMSE</th>
+                  <th>MAPE</th>
+                  <th>Bias</th>
+                </tr>
+              </thead>
+              <tbody id="buildingMetricsBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>오차 상위 행</h2>
+              <p id="errorSubtitle">선택 모델 기준</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>날짜</th>
+                  <th>건물</th>
+                  <th>실제</th>
+                  <th>예측</th>
+                  <th>절대오차</th>
+                </tr>
+              </thead>
+              <tbody id="errorRowsBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js?v=ml-baseline-v1"></script>
+  </body>
+</html>

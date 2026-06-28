@@ -1,0 +1,48 @@
+{
+  "train_monthly_cutoff": "2026-03",
+  "validation_default_start": "2026-04-01",
+  "validation_default_end": "2026-06-23",
+  "primary_selection_rules": {
+    "mapping_confidence": "high",
+    "review_required": false,
+    "negative_usage_count": 0,
+    "min_non_null_monthly_usage_count": 24,
+    "min_valid_recent_days": 84,
+    "max_zero_rate_recent": 0.1,
+    "exclude_duplicate_daily_sequence": true,
+    "exclude_nonpartial_known_outliers": true
+  },
+  "cleaning_rules": {
+    "partial_day": "impute same building/report_month mean for continuity; excluded from validation",
+    "placeholder_zeros_2026_06_25_to_2026_06_30": "keep NA in usage_kwh_clean; fill only in usage_kwh_imputed_continuous",
+    "known_extreme_outliers": "replace with same building/report_month mean excluding bad values",
+    "suspect_zeros": "usage_kwh == 0 while positive month median >=100, replace with same building/report_month mean",
+    "auto_high_spike": "usage > 3 * positive month median OR usage > Q3 + 3 * IQR, replace with same building/report_month mean"
+  },
+  "primary_reliable_buildings": [
+    "건축관",
+    "기계관",
+    "박물관",
+    "사범대학",
+    "상경관",
+    "생활과학대",
+    "섬유관",
+    "외국어교육원",
+    "음대",
+    "인문계식당",
+    "전기관",
+    "제1공장형실습장",
+    "제1과학관",
+    "제2공장형실습장",
+    "제2인문관",
+    "제3과학관",
+    "화공관"
+  ],
+  "review_optional_major_buildings": [
+    "IT관",
+    "과학도서관",
+    "정보전산원",
+    "제1인문관심야",
+    "중앙도서관"
+  ]
+}

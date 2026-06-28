@@ -1,0 +1,6 @@
+{
+  "weekend_mean_shap_kwh": -18.436375990970898,
+  "weekday_mean_shap_kwh": 7.232629295739553,
+  "lag_1d_spearman_feature_value_vs_shap": 0.9696418409699306,
+  "baseline_uniform_spearman_feature_value_vs_shap": 0.3105213605235915
+}
