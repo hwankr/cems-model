@@ -1,0 +1,10 @@
+{
+  "model": "lightgbm_weather_area_quantile_q50_walk_forward",
+  "prediction_method": "pred_lightgbm_weather_area_q50_kwh",
+  "prediction_column": "pred_lightgbm_weather_area_q50_kwh",
+  "n_rows": 1190,
+  "mae_kwh": 131.46221742710793,
+  "rmse_kwh": 221.94964714169052,
+  "wape": 0.1182011405661867,
+  "bias_pct_sum_pred_minus_actual": -0.0023416393066831385
+}

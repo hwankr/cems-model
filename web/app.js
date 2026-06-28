@@ -1,3 +1,5 @@
+const DEFAULT_METHOD = "pred_lightgbm_weather_area_q50_kwh";
+
 const state = {
   predictions: [],
   mlPredictions: [],
@@ -8,15 +10,20 @@ const state = {
   fairnessPinball: [],
   fairnessResidualCorrelations: [],
   fairnessGroupBias: [],
-  selectedMethod: "pred_realtime_uniform_daily_kwh",
+  champion: null,
+  selectedMethod: DEFAULT_METHOD,
   selectedBuilding: "all",
   selectedMonth: "all",
 };
 
 const methodLabels = {
-  pred_realtime_uniform_daily_kwh: "실시간 기준선: 월 프로파일 균등 일할",
+  pred_realtime_uniform_daily_kwh: "실시간 기준 월 프로파일 균등 일할",
   pred_weekday_recent_kwh: "요일+최근사용량 모델",
   pred_lightgbm_q50_kwh: "LightGBM q50 walk-forward",
+  pred_lightgbm_weather_q50_kwh: "LightGBM + weather 모델",
+  pred_lightgbm_weather_area_q50_kwh: "LightGBM + weather + area 모델",
+  pred_lightgbm_weather_academic_q50_kwh: "LightGBM + weather + academic 후보",
+  pred_lightgbm_weather_area_academic_q50_kwh: "LightGBM + weather + area + academic 후보",
 };
 
 const files = {
@@ -31,56 +38,31 @@ const files = {
   fairnessPinball: "../outputs/ml_baseline_pinball_loss.csv",
   fairnessResidualCorrelations: "../outputs/ml_baseline_residual_correlations.csv",
   fairnessGroupBias: "../outputs/ml_baseline_group_bias_by_building.csv",
+  champion: "../outputs/ml_baseline_champion.json",
 };
 
-const numberFields = new Set([
-  "usage_kwh_clean",
-  "pred_realtime_uniform_daily_kwh",
-  "pred_weekday_recent_kwh",
-  "pred_lightgbm_q05_kwh",
-  "pred_lightgbm_q10_kwh",
-  "pred_lightgbm_q50_kwh",
-  "pred_lightgbm_q90_kwh",
-  "pred_lightgbm_q95_kwh",
-  "weekday_recent_prev_day_kwh",
-  "weekday_recent_recent_3d_mean_kwh",
-  "weekday_recent_recent_7d_mean_kwh",
-  "weekday_recent_prev_week_same_weekday_kwh",
-  "weekday_recent_weekday_profile_kwh",
-  "weekday_recent_weekday_multiplier",
-  "weekday_recent_day_of_week",
-  "weekday_recent_month",
-  "weekday_recent_day",
-  "pred_uniform_daily_kwh",
-  "pred_school_shape_kwh",
-  "mae_kwh",
-  "rmse_kwh",
-  "mape",
-  "bias_kwh_mean",
-  "bias_pct_sum",
-  "actual_sum_kwh_clean",
-  "actual_sum_kwh",
-  "pred_sum_kwh",
-  "mean_actual_kwh",
-  "n_rows",
-  "walk_forward_train_rows",
-  "wape",
-  "nmae",
-  "bias_kwh_mean_pred_minus_actual",
-  "bias_pct_sum_pred_minus_actual",
-  "nominal_coverage",
-  "actual_coverage",
-  "coverage_gap_actual_minus_nominal",
-  "mean_interval_width_kwh",
-  "median_interval_width_kwh",
-  "quantile",
-  "pinball_loss_kwh",
-  "pearson_r",
-  "pearson_pvalue",
-  "spearman_r",
-  "spearman_pvalue",
-  "abs_error_school_shape_kwh",
-  "abs_pct_error_school_shape",
+const textFields = new Set([
+  "date",
+  "report_month",
+  "selection_tier",
+  "building_name_recent",
+  "building_name_long_term",
+  "cleaning_action",
+  "replacement_source_day_count",
+  "mapping_confidence",
+  "review_required",
+  "duplicate_group",
+  "source_file",
+  "source_section",
+  "profile_source_months",
+  "validation_period",
+  "weather_feature_source",
+  "weather_issued_at",
+  "model",
+  "prediction_method",
+  "prediction_column",
+  "interval",
+  "feature",
 ]);
 
 document.addEventListener("DOMContentLoaded", init);
@@ -101,6 +83,7 @@ async function init() {
       fairnessPinball,
       fairnessResidualCorrelations,
       fairnessGroupBias,
+      champion,
     ] = await Promise.all([
       loadCsv(files.predictions),
       loadOptionalCsv(files.mlPredictions),
@@ -113,6 +96,7 @@ async function init() {
       loadOptionalCsv(files.fairnessPinball),
       loadOptionalCsv(files.fairnessResidualCorrelations),
       loadOptionalCsv(files.fairnessGroupBias),
+      loadOptionalJson(files.champion),
     ]);
 
     state.mlPredictions = mlPredictions.map(coerceRow);
@@ -130,6 +114,8 @@ async function init() {
     state.fairnessPinball = fairnessPinball.map(coerceRow);
     state.fairnessResidualCorrelations = fairnessResidualCorrelations.map(coerceRow);
     state.fairnessGroupBias = fairnessGroupBias.map(coerceRow);
+    state.champion = champion && champion.prediction_column ? champion : null;
+    state.selectedMethod = determineDefaultMethod();
 
     populateFilters();
     render();
@@ -159,7 +145,7 @@ function bindControls() {
   });
 
   document.querySelector("#resetButton").addEventListener("click", () => {
-    state.selectedMethod = "pred_realtime_uniform_daily_kwh";
+    state.selectedMethod = determineDefaultMethod();
     state.selectedBuilding = "all";
     state.selectedMonth = "all";
     document.querySelector("#methodSelect").value = state.selectedMethod;
@@ -183,6 +169,18 @@ async function loadOptionalCsv(path) {
     return await loadCsv(path);
   } catch (_error) {
     return [];
+  }
+}
+
+async function loadOptionalJson(path) {
+  try {
+    const response = await fetch(path);
+    if (!response.ok) {
+      return null;
+    }
+    return await response.json();
+  } catch (_error) {
+    return null;
   }
 }
 
@@ -236,12 +234,21 @@ function parseCsv(text) {
 }
 
 function coerceRow(row) {
-  const result = { ...row };
-  for (const field of numberFields) {
-    if (field in result) {
-      const parsed = Number(result[field]);
-      result[field] = Number.isFinite(parsed) ? parsed : null;
+  const result = {};
+  for (const [key, rawValue] of Object.entries(row)) {
+    const value = typeof rawValue === "string" ? rawValue.trim() : rawValue;
+    if (value === "") {
+      result[key] = null;
+      continue;
     }
+    if (!textFields.has(key)) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        result[key] = parsed;
+        continue;
+      }
+    }
+    result[key] = value;
   }
   return result;
 }
@@ -257,29 +264,35 @@ function mergeMlPredictions(baseRows, mlRows) {
 
   return baseRows.map((row) => {
     const mlRow = mlByKey.get(`${row.date}::${row.building_name_recent}`);
-    if (!mlRow) {
-      return row;
-    }
-    return {
-      ...row,
-      pred_lightgbm_q05_kwh: mlRow.pred_lightgbm_q05_kwh,
-      pred_lightgbm_q10_kwh: mlRow.pred_lightgbm_q10_kwh,
-      pred_lightgbm_q50_kwh: mlRow.pred_lightgbm_q50_kwh,
-      pred_lightgbm_q90_kwh: mlRow.pred_lightgbm_q90_kwh,
-      pred_lightgbm_q95_kwh: mlRow.pred_lightgbm_q95_kwh,
-      walk_forward_train_start: mlRow.walk_forward_train_start,
-      walk_forward_train_end: mlRow.walk_forward_train_end,
-      walk_forward_train_rows: mlRow.walk_forward_train_rows,
-    };
+    return mlRow ? { ...row, ...mlRow } : row;
   });
+}
+
+function determineDefaultMethod() {
+  const candidates = [
+    state.champion?.prediction_column,
+    DEFAULT_METHOD,
+    "pred_lightgbm_weather_q50_kwh",
+    "pred_lightgbm_q50_kwh",
+    "pred_weekday_recent_kwh",
+    "pred_realtime_uniform_daily_kwh",
+  ].filter(Boolean);
+
+  return candidates.find((method) => hasPredictionColumn(method)) || DEFAULT_METHOD;
+}
+
+function hasPredictionColumn(method) {
+  return state.predictions.some((row) => Object.prototype.hasOwnProperty.call(row, method));
 }
 
 function populateFilters() {
   const buildings = uniqueSorted(state.predictions.map((row) => row.building_name_recent));
   const months = uniqueSorted(state.predictions.map((row) => row.report_month));
-  const methods = Object.entries(methodLabels).filter(([method]) =>
-    state.predictions.some((row) => method in row),
-  );
+  const methods = Object.entries(methodLabels).filter(([method]) => hasPredictionColumn(method));
+
+  if (!methods.some(([method]) => method === state.selectedMethod)) {
+    state.selectedMethod = methods[0]?.[0] || DEFAULT_METHOD;
+  }
 
   fillSelect("#methodSelect", methods);
   fillSelect("#buildingSelect", [
@@ -326,15 +339,8 @@ function calculateMetrics(rows, predColumn) {
   const errors = validRows.map((row) => row[predColumn] - row.usage_kwh_clean);
   const absErrors = errors.map(Math.abs);
   const squaredErrors = errors.map((error) => error * error);
-  const apeRows = validRows
-    .map((row) =>
-      row.usage_kwh_clean > 0 ? Math.abs(row[predColumn] - row.usage_kwh_clean) / row.usage_kwh_clean : null,
-    )
-    .filter((value) => value !== null);
-
   const actualSum = sum(validRows.map((row) => row.usage_kwh_clean));
   const predSum = sum(validRows.map((row) => row[predColumn]));
-  const errorSum = sum(errors);
   const mse = average(squaredErrors);
 
   return {
@@ -343,8 +349,8 @@ function calculateMetrics(rows, predColumn) {
     predSum,
     mae: average(absErrors),
     rmse: mse === null ? null : Math.sqrt(mse),
-    mape: average(apeRows),
-    biasPct: actualSum ? errorSum / actualSum : null,
+    wape: actualSum ? sum(absErrors) / actualSum : null,
+    biasPct: actualSum ? sum(errors) / actualSum : null,
   };
 }
 
@@ -355,7 +361,7 @@ function renderKpis(metrics) {
     ["예측 합계", `${formatNumber(metrics.predSum)} kWh`],
     ["MAE", `${formatNumber(metrics.mae)} kWh`],
     ["RMSE", `${formatNumber(metrics.rmse)} kWh`],
-    ["MAPE", formatPercent(metrics.mape)],
+    ["WAPE", formatPercent(metrics.wape)],
   ];
 
   document.querySelector("#kpiGrid").innerHTML = items
@@ -365,7 +371,7 @@ function renderKpis(metrics) {
 
 function renderChart(rows, predColumn) {
   const chart = document.querySelector("#dailyChart");
-  document.querySelector("#chartSubtitle").textContent = `${methodLabels[predColumn] || predColumn} · ${filterLabel()}`;
+  document.querySelector("#chartSubtitle").textContent = `${methodLabels[predColumn] || predColumn} - ${filterLabel()}`;
 
   if (!rows.length) {
     chart.innerHTML = `<div class="empty">표시할 검증 행이 없습니다</div>`;
@@ -377,6 +383,7 @@ function renderChart(rows, predColumn) {
     chart.innerHTML = `<div class="empty">선택한 모델의 예측 행이 없습니다</div>`;
     return;
   }
+
   const values = grouped.flatMap((row) => [row.actual, row.predicted]).filter(Number.isFinite);
   const maxValue = Math.max(...values);
   const minValue = Math.min(...values, 0);
@@ -454,8 +461,14 @@ function aggregateByDate(rows, predColumn) {
 function renderMonthComparison() {
   const rows = state.monthMetrics
     .filter((row) => row.prediction_method === state.selectedMethod)
-    .sort((left, right) => left.report_month.localeCompare(right.report_month));
-  const maxMae = Math.max(...rows.map((row) => row.mae_kwh), 1);
+    .sort((left, right) => String(left.report_month).localeCompare(String(right.report_month)));
+
+  if (!rows.length) {
+    document.querySelector("#monthComparison").innerHTML = `<div class="empty">월별 지표가 없습니다</div>`;
+    return;
+  }
+
+  const maxMae = Math.max(...rows.map((row) => row.mae_kwh).filter(Number.isFinite), 1);
 
   document.querySelector("#monthComparison").innerHTML = rows
     .map((row) => {
@@ -464,7 +477,7 @@ function renderMonthComparison() {
         <div class="month-row">
           <div class="month-title">
             <span>${escapeHtml(row.report_month)}</span>
-            <span>MAE ${formatNumber(row.mae_kwh)} · MAPE ${formatPercent(row.mape)}</span>
+            <span>MAE ${formatNumber(row.mae_kwh)} - ${ratioMetricLabel(row)} ${formatPercent(ratioMetricValue(row))}</span>
           </div>
           <div class="bar"><span style="width:${width}%"></span></div>
         </div>
@@ -478,21 +491,22 @@ function renderBuildingMetrics() {
     .filter((row) => row.prediction_method === state.selectedMethod)
     .sort((left, right) => right.mae_kwh - left.mae_kwh);
 
-  document.querySelector("#buildingMetricsBody").innerHTML = rows
-    .map(
-      (row) => `
-        <tr data-building="${escapeHtml(row.building_name_recent)}">
-          <td>${escapeHtml(row.building_name_recent)}</td>
-          <td>${formatNumber(row.mae_kwh)}</td>
-          <td>${formatNumber(row.rmse_kwh)}</td>
-          <td>${formatPercent(row.mape)}</td>
-          <td>${formatNumber(row.bias_kwh_mean)}</td>
-        </tr>
-      `,
-    )
-    .join("");
+  document.querySelector("#buildingMetricsBody").innerHTML =
+    rows
+      .map(
+        (row) => `
+          <tr data-building="${escapeHtml(row.building_name_recent)}">
+            <td>${escapeHtml(row.building_name_recent)}</td>
+            <td>${formatNumber(row.mae_kwh)}</td>
+            <td>${formatNumber(row.rmse_kwh)}</td>
+            <td>${formatPercent(ratioMetricValue(row))}</td>
+            <td>${formatNumber(metricBiasMean(row))}</td>
+          </tr>
+        `,
+      )
+      .join("") || `<tr><td colspan="5">건물별 지표가 없습니다</td></tr>`;
 
-  document.querySelectorAll("#buildingMetricsBody tr").forEach((row) => {
+  document.querySelectorAll("#buildingMetricsBody tr[data-building]").forEach((row) => {
     row.addEventListener("click", () => {
       state.selectedBuilding = row.dataset.building;
       document.querySelector("#buildingSelect").value = state.selectedBuilding;
@@ -546,34 +560,33 @@ function renderFairnessDiagnostics() {
 }
 
 function renderFairnessKpis() {
-  const lgbm = state.fairnessModelComparison.find(
-    (row) => row.model === "lightgbm_quantile_q50_walk_forward",
-  );
+  const championRow = findComparisonRow(state.champion?.prediction_column) || findComparisonRow(state.selectedMethod);
   const naive = state.fairnessModelComparison.find(
     (row) => row.model === "naive_last_week_same_weekday",
   );
-  const coverage90 = state.fairnessCoverage.find((row) => row.interval === "raw_90");
+  const coverage90 = findCoverageRow(state.champion?.prediction_column || state.selectedMethod, 90);
+  const championLabel = championRow ? modelShortLabel(championRow.model) : "walk-forward";
 
   const cards = [
     {
       label: "검증 방식",
-      value: lgbm ? `${formatInteger(lgbm.n_rows)}행` : "walk-forward",
-      text: "과거 데이터로 다음 날짜를 예측합니다. random shuffle은 시계열 누수라 쓰지 않습니다.",
+      value: championRow ? `${formatInteger(championRow.n_rows)}행` : "walk-forward",
+      text: `${championLabel}을 과거 데이터로 순차 학습해 다음 날짜를 예측했습니다. random shuffle은 쓰지 않습니다.`,
     },
     {
       label: "naive baseline 대비",
-      value: lgbm && naive ? `${formatPercent(naive.wape)} → ${formatPercent(lgbm.wape)}` : "비교 필요",
-      text: "지난주 같은 요일 naive보다 WAPE는 낮지만, calibration까지 통과해야 공정합니다.",
+      value: championRow && naive ? `${formatPercent(naive.wape)} -> ${formatPercent(championRow.wape)}` : "비교 필요",
+      text: "전주 같은 요일 naive보다 WAPE가 낮아야 실제 운영 모델 후보로 볼 수 있습니다.",
     },
     {
       label: "90% 예측구간",
       value: coverage90 ? formatPercent(coverage90.actual_coverage) : "확인 필요",
-      text: "명목 90%보다 낮으면 예측구간이 좁아 사용자를 부당하게 평가할 수 있습니다.",
+      text: "목표 90%보다 낮으면 예측구간이 좁아 사용자에게 불리하게 평가될 수 있습니다.",
     },
     {
       label: "공정성 baseline 판정",
-      value: "아직 신뢰 불가",
-      text: "coverage 부족, quantile crossing, 요일/건물 편향이 남아 있습니다.",
+      value: "아직 보류",
+      text: "오차는 개선됐지만 coverage 부족과 건물별 bias 점검이 더 필요합니다.",
     },
   ];
 
@@ -593,7 +606,8 @@ function renderFairnessKpis() {
 function renderFairnessModelComparison() {
   const body = document.querySelector("#fairnessModelBody");
   body.innerHTML =
-    state.fairnessModelComparison
+    [...state.fairnessModelComparison]
+      .sort((left, right) => left.wape - right.wape)
       .map(
         (row) => `
           <tr>
@@ -608,9 +622,8 @@ function renderFairnessModelComparison() {
 }
 
 function renderCoverage() {
-  const rows = state.fairnessCoverage.filter((row) => row.interval !== "raw_quantile_crossing_rate");
   document.querySelector("#coverageBody").innerHTML =
-    rows
+    state.fairnessCoverage
       .map(
         (row) => `
           <tr>
@@ -625,20 +638,18 @@ function renderCoverage() {
 }
 
 function renderPinball() {
-  const rows = state.fairnessPinball.filter(
-    (row) => !("monotone_repaired" in row) || String(row.monotone_repaired).toLowerCase() === "false",
-  );
   document.querySelector("#pinballBody").innerHTML =
-    rows
+    state.fairnessPinball
       .map(
         (row) => `
           <tr>
+            <td>${escapeHtml(modelShortLabel(row.model))}</td>
             <td>q${Math.round(row.quantile * 100)}</td>
             <td>${formatNumber(row.pinball_loss_kwh)}</td>
           </tr>
         `,
       )
-      .join("") || `<tr><td colspan="2">pinball loss 결과가 없습니다</td></tr>`;
+      .join("") || `<tr><td colspan="3">pinball loss 결과가 없습니다</td></tr>`;
 }
 
 function renderResidualCorrelations() {
@@ -657,13 +668,14 @@ function renderResidualCorrelations() {
           </tr>
         `,
       )
-      .join("") || `<tr><td colspan="3">잔차 상관 결과가 없습니다</td></tr>`;
+      .join("") || `<tr><td colspan="3">오차 상관 결과가 없습니다</td></tr>`;
 }
 
 function renderGroupBias() {
-  const rows = [...state.fairnessGroupBias].sort(
-    (left, right) => left.bias_pct_sum_pred_minus_actual - right.bias_pct_sum_pred_minus_actual,
-  );
+  const championColumn = state.champion?.prediction_column;
+  const rows = [...state.fairnessGroupBias]
+    .filter((row) => !championColumn || row.prediction_column === championColumn)
+    .sort((left, right) => left.bias_pct_sum_pred_minus_actual - right.bias_pct_sum_pred_minus_actual);
   renderBiasList("#underBiasList", rows.slice(0, 4));
   renderBiasList("#overBiasList", rows.slice(-4).reverse());
 }
@@ -679,13 +691,38 @@ function renderBiasList(selector, rows) {
           </div>
         `,
       )
-      .join("") || `<div class="empty-list">건물 편향 결과가 없습니다</div>`;
+      .join("") || `<div class="empty-list">건물 영향 결과가 없습니다</div>`;
+}
+
+function findComparisonRow(predictionColumn) {
+  return state.fairnessModelComparison.find((row) => row.prediction_column === predictionColumn);
+}
+
+function findCoverageRow(predictionColumn, nominalPct) {
+  const prefix = coveragePrefixFromPrediction(predictionColumn);
+  return state.fairnessCoverage.find((row) => row.interval === `${prefix}_${nominalPct}`);
+}
+
+function coveragePrefixFromPrediction(predictionColumn) {
+  if (predictionColumn?.includes("weather_area_academic")) {
+    return "lightgbm_weather_area_academic";
+  }
+  if (predictionColumn?.includes("weather_academic")) {
+    return "lightgbm_weather_academic";
+  }
+  if (predictionColumn?.includes("weather_area")) {
+    return "lightgbm_weather_area";
+  }
+  if (predictionColumn?.includes("weather")) {
+    return "lightgbm_weather";
+  }
+  return "lightgbm";
 }
 
 function filterLabel() {
   const building = state.selectedBuilding === "all" ? "전체 건물" : state.selectedBuilding;
   const month = state.selectedMonth === "all" ? "전체 월" : state.selectedMonth;
-  return `${building} · ${month}`;
+  return `${building} / ${month}`;
 }
 
 function setStatus(text, type) {
@@ -749,6 +786,20 @@ function formatSignedPercent(value) {
   return `${sign}${formatPercent(value)}`;
 }
 
+function ratioMetricValue(row) {
+  return Number.isFinite(row.wape) ? row.wape : row.mape;
+}
+
+function ratioMetricLabel(row) {
+  return Number.isFinite(row.wape) ? "WAPE" : "MAPE";
+}
+
+function metricBiasMean(row) {
+  return Number.isFinite(row.bias_kwh_mean_pred_minus_actual)
+    ? row.bias_kwh_mean_pred_minus_actual
+    : row.bias_kwh_mean;
+}
+
 function formatPValue(value) {
   if (!Number.isFinite(value)) {
     return "-";
@@ -760,18 +811,34 @@ function modelShortLabel(model) {
   const labels = {
     naive_seasonal_month_profile: "계절 월평균 naive",
     naive_last_week_same_weekday: "지난주 같은 요일 naive",
+    current_realtime_uniform_daily: "현재 월 균등 기준",
     current_weekday_recent_heuristic: "현재 휴리스틱",
     lightgbm_quantile_q50_walk_forward: "LightGBM q50",
+    lightgbm_weather_quantile_q50_walk_forward: "LightGBM+weather q50",
+    lightgbm_weather_area_quantile_q50_walk_forward: "LightGBM+weather+area q50",
+    lightgbm_weather_academic_quantile_q50_walk_forward: "LightGBM+weather+academic q50",
+    lightgbm_weather_area_academic_quantile_q50_walk_forward: "LightGBM+weather+area+academic q50",
+    lightgbm_quantile_walk_forward: "LightGBM",
+    lightgbm_weather_quantile_walk_forward: "LightGBM+weather",
+    lightgbm_weather_area_quantile_walk_forward: "LightGBM+weather+area",
+    lightgbm_weather_academic_quantile_walk_forward: "LightGBM+weather+academic",
+    lightgbm_weather_area_academic_quantile_walk_forward: "LightGBM+weather+area+academic",
   };
   return labels[model] || model;
 }
 
 function coverageLabel(interval) {
   const labels = {
-    raw_90: "raw 90%",
-    raw_80: "raw 80%",
-    monotone_90: "보정 90%",
-    monotone_80: "보정 80%",
+    lightgbm_90: "LightGBM 90%",
+    lightgbm_80: "LightGBM 80%",
+    lightgbm_weather_90: "weather 90%",
+    lightgbm_weather_80: "weather 80%",
+    lightgbm_weather_area_90: "weather+area 90%",
+    lightgbm_weather_area_80: "weather+area 80%",
+    lightgbm_weather_academic_90: "weather+academic 90%",
+    lightgbm_weather_academic_80: "weather+academic 80%",
+    lightgbm_weather_area_academic_90: "weather+area+academic 90%",
+    lightgbm_weather_area_academic_80: "weather+area+academic 80%",
   };
   return labels[interval] || interval;
 }
@@ -780,12 +847,21 @@ function featureLabel(feature) {
   const labels = {
     profile_monthly_kwh_mean: "월 프로파일",
     baseline_uniform_daily_kwh: "월 균등 기준값",
+    pred_realtime_uniform_daily_kwh: "실시간 월 균등 예측",
+    pred_weekday_recent_kwh: "요일+최근사용량 예측",
     is_weekend: "주말 여부",
-    lag_3d_mean_kwh: "최근 3일 평균",
-    lag_7d_mean_kwh: "최근 7일 평균",
-    lag_7d_same_weekday_kwh: "전주 같은 요일",
-    lag_1d_kwh: "전일 사용량",
-    day_of_week: "요일",
+    ml_day_of_week: "요일",
+    ml_is_weekend: "주말 여부",
+    ml_day_of_year: "연중 일자",
+    ml_lag_1d_kwh: "전일 사용량",
+    ml_lag_3d_mean_kwh: "최근 3일 평균",
+    ml_lag_7d_mean_kwh: "최근 7일 평균",
+    ml_lag_7d_same_weekday_kwh: "전주 같은 요일",
+    weather_cdd_18: "냉방도일",
+    weather_hdd_18: "난방도일",
+    weather_rainfall_mm: "강수량",
+    area_total_sqm: "건물 총면적",
+    profile_kwh_per_sqm_month: "면적당 월 사용량",
   };
   return labels[feature] || feature;
 }

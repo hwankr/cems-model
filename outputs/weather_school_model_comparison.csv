@@ -1,0 +1,2 @@
+﻿model,prediction_column,n_rows,actual_sum_kwh,pred_sum_kwh,mae_kwh,rmse_kwh,wape,bias_kwh_mean_pred_minus_actual,bias_pct_sum_pred_minus_actual
+weather_school_shape,pred_weather_school_kwh,1428,1593257.7651515151,1549509.288670933,162.31233468658016,241.12608576097037,0.14547678285465285,-30.636188011612077,-0.02745850510662452

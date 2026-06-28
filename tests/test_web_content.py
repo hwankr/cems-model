@@ -11,34 +11,50 @@ class WebContentTest(unittest.TestCase):
 
         required_phrases = [
             "모델 작동 방식",
-            "월 프로파일 균등 일할",
+            "실시간 기준 월 프로파일 균등 일할",
             "요일+최근사용량 모델",
+            "LightGBM q50 walk-forward",
+            "LightGBM + weather + area-v2",
             "2026-04-10 예측에는 2026-04-09까지",
             "당일 실제값과 이후 값은 사용하지 않습니다",
             "전일 사용량",
             "최근 3일 평균",
             "최근 7일 평균",
             "전주 같은 요일",
-            "초반 날짜처럼 최근값이 부족하면 월 기준값으로 대신 채웁니다",
-            "학교 전체 일별 실측 흐름",
-            "평일 가중치",
-            "주말 가중치",
-            "공정성 진단",
+            "KMA APIHub 단기예보",
+            "17개 건물 1,190행",
+            "131.46 kWh",
+            "11.82%",
+            "냉방도일, 난방도일, 강수량, 강수 여부, 건물 면적",
+            "학사일정 후보",
+            "성능이 악화되면 champion에서 자동 제외합니다",
             "공정성 baseline 판정",
-            "아직 신뢰 불가",
-            "MAPE는 주력 지표로 쓰지 않습니다",
+            "아직 보류",
             "90% 예측구간",
             "calibration",
-            "잔차 무편향성",
-            "naive baseline 대비",
-            "비교용 머신러닝 모델",
-            "LightGBM q50 walk-forward",
-            "기존 규칙 기반 baseline보다 지표가 얼마나 나아지는지",
+            "오차 무편향성",
         ]
 
         for phrase in required_phrases:
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, html)
+
+    def test_dashboard_loads_champion_model(self):
+        script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+
+        required_phrases = [
+            'champion: "../outputs/ml_baseline_champion.json"',
+            "loadOptionalJson(files.champion)",
+            "state.champion?.prediction_column",
+            "pred_lightgbm_weather_area_q50_kwh",
+            "LightGBM + weather + area 모델",
+            "pred_lightgbm_weather_academic_q50_kwh",
+            "pred_lightgbm_weather_area_academic_q50_kwh",
+        ]
+
+        for phrase in required_phrases:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, script)
 
 
 if __name__ == "__main__":

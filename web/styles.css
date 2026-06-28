@@ -338,6 +338,71 @@ button {
   color: var(--red);
 }
 
+.weather-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 12px;
+  border: 1px solid rgba(17, 124, 120, 0.24);
+  border-radius: 8px;
+  background: #f3faf7;
+  padding: 12px;
+}
+
+.weather-record span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.weather-record strong {
+  display: block;
+  margin-top: 7px;
+  color: var(--teal);
+  font-size: 1rem;
+}
+
+.weather-record p {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.weather-record dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.weather-record dl div {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px;
+}
+
+.weather-record dt,
+.weather-record dd {
+  margin: 0;
+}
+
+.weather-record dt {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.weather-record dd {
+  margin-top: 7px;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
 .model-detail-grid h3,
 .weight-grid h3 {
   margin: 0 0 10px;
@@ -774,6 +839,10 @@ tbody tr:hover {
   }
 
   .leakage-rule {
+    grid-template-columns: 1fr;
+  }
+
+  .weather-record {
     grid-template-columns: 1fr;
   }
 

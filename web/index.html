@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CEMS 실시간 기준선 모델</title>
-    <link rel="stylesheet" href="./styles.css?v=ml-baseline-v1" />
+    <title>CEMS 실시간 전력 예측 기준 모델</title>
+    <link rel="stylesheet" href="./styles.css?v=lightgbm-area-academic-v2" />
   </head>
   <body>
     <main class="shell">
       <header class="topbar">
         <div>
           <p class="eyebrow">CEMS baseline viewer</p>
-          <h1>실시간 전력 예측 기준선</h1>
+          <h1>실시간 전력 예측 기준 모델</h1>
         </div>
         <div class="status" id="loadStatus">CSV 읽는 중</div>
       </header>
@@ -20,8 +20,10 @@
         <div class="field">
           <label for="methodSelect">모델</label>
           <select id="methodSelect">
-            <option value="pred_realtime_uniform_daily_kwh">실시간 기준선: 월 프로파일 균등 일할</option>
+            <option value="pred_realtime_uniform_daily_kwh">실시간 기준 월 프로파일 균등 일할</option>
             <option value="pred_weekday_recent_kwh">요일+최근사용량 모델</option>
+            <option value="pred_lightgbm_weather_q50_kwh">LightGBM + weather 모델</option>
+            <option value="pred_lightgbm_weather_area_q50_kwh">LightGBM + weather + area 모델</option>
           </select>
         </div>
         <div class="field">
@@ -37,36 +39,36 @@
 
       <section class="model-contract" aria-label="실시간 예측 조건">
         <div class="contract-title">
-          <strong>baseline-v2-realtime / weekday_recent_v1</strong>
-          <span>2026년 4월부터는 실시간 운영 상황으로 평가합니다.</span>
+          <strong>baseline-v2-realtime / weekday_recent_v1 / lightgbm-area-academic-v2</strong>
+          <span>2026년 4월부터의 일별 데이터를 실시간 운영 상황으로 두고 평가합니다.</span>
         </div>
         <div class="contract-grid">
           <article>
             <span>학습 기준</span>
-            <strong>2026년 3월 이전</strong>
-            <p>2024~2025년 같은 월의 건물별 월 전력 프로파일을 사용합니다.</p>
+            <strong>2026년 3월까지</strong>
+            <p>학교 전체 데이터와 건물별 과거 월 사용량, 2026년 3월 이전 일별 데이터를 학습에 사용합니다.</p>
           </article>
           <article>
             <span>예측 구간</span>
-            <strong>2026년 4월~6월</strong>
-            <p>검증은 2026-04-01부터 2026-06-23까지의 실제 건물 일별 전력과 비교합니다.</p>
+            <strong>2026년 4월-6월</strong>
+            <p>검증은 2026-04-15부터 2026-06-23까지 실제 건물 일별 전력과 비교합니다.</p>
           </article>
           <article>
-            <span>사용한 입력</span>
-            <strong>건물 월 프로파일 + 이전 사용량</strong>
-            <p>기준선은 월 균등 일할을 쓰고, 새 모델은 건물별 이전 일별 사용량을 함께 사용합니다.</p>
+            <span>사용 가능한 입력</span>
+            <strong>과거 사용량 + 예보 기상 + 건물 면적</strong>
+            <p>LightGBM은 날짜, 최근 사용량, KMA 예보 기상값, 건물 면적/호실/층수 feature를 사용합니다.</p>
           </article>
           <article>
             <span>제외한 입력</span>
-            <strong>4~6월 학교 일별 실측 흐름</strong>
-            <p>예측 대상 기간의 실제 학교 전체 일별 총량과 일별 비중은 사용하지 않습니다.</p>
+            <strong>4월 이후 실제 총량 흐름</strong>
+            <p>예측 대상 기간의 실제 학교 전체 일별 총량이나 일별 비중은 입력으로 쓰지 않습니다.</p>
           </article>
         </div>
       </section>
 
       <section class="kpis" id="kpiGrid" aria-label="요약 지표"></section>
 
-      <section class="panel metric-help" aria-label="지표 도움말">
+      <section class="panel metric-help" aria-label="지표 설명">
         <div class="panel-heading">
           <div>
             <h2>지표 읽는 법</h2>
@@ -74,25 +76,21 @@
           </div>
         </div>
         <p class="realtime-note">
-          최근 사용량은 예측일 이전 데이터만 사용합니다.
-          2026년 4~6월 학교 전체 일별 실측 흐름 배분 방식은 데이터 누수 가능성이 있어 기준선과 새 모델 입력에서 제외했습니다.
+          2026년 4월 이후 예측은 매일 새로 들어오는 관측값과 그 시점까지 확인 가능한 예보만 쓴다고 가정합니다.
+          학습에는 실제 해당일 기상값을 쓰고, 검증 구간에는 전날까지 발표된 예보 기상값을 붙였습니다.
         </p>
         <div class="metric-help-grid">
           <article>
             <strong>MAE</strong>
-            <p>하루-건물 단위로 평균 몇 kWh 빗나갔는지 보는 값입니다.</p>
+            <p>하루-건물 단위로 평균 몇 kWh 빗나가는지 보는 값입니다.</p>
           </article>
           <article>
             <strong>RMSE</strong>
             <p>큰 오차에 더 민감합니다. MAE보다 많이 크면 특정 날짜에서 크게 틀린 것입니다.</p>
           </article>
           <article>
-            <strong>MAPE</strong>
-            <p>사용량이 낮은 날짜에는 분모가 작아 크게 튑니다. 이 프로젝트에서는 MAPE는 주력 지표로 쓰지 않습니다.</p>
-          </article>
-          <article>
             <strong>WAPE</strong>
-            <p>전체 절대오차를 전체 실제 사용량으로 나눈 값입니다. 공정성 baseline의 점 정확도는 이 값으로 봅니다.</p>
+            <p>전체 절대오차를 전체 실제 사용량으로 나눈 값입니다. 이번 검증의 주 지표로 사용합니다.</p>
           </article>
           <article>
             <strong>Bias</strong>
@@ -105,33 +103,32 @@
         <div class="panel-heading">
           <div>
             <h2>모델 작동 방식</h2>
-            <p>웹사이트만 보고도 두 예측 모델의 입력, 계산 방식, 데이터 누수 방지 규칙을 확인할 수 있습니다.</p>
+            <p>이 페이지는 예측 모델의 입력, 계산 방식, 데이터 누수 방지 규칙을 함께 보여줍니다.</p>
           </div>
         </div>
 
         <div class="model-summary-grid">
           <article>
             <span>기준 모델</span>
-            <strong>실시간 기준선: 월 프로파일 균등 일할</strong>
-            <p>
-              건물별 월 기준 사용량을 해당 월 날짜 수로 나눕니다.
-              예를 들어 월 기준값이 30,000 kWh이고 30일짜리 월이면 하루 예측값은 1,000 kWh입니다.
-            </p>
+            <strong>실시간 기준 월 프로파일 균등 일할</strong>
+            <p>건물별 월 기준 사용량을 해당 월 날짜 수로 나눕니다. 가장 단순한 비교 기준입니다.</p>
           </article>
           <article>
-            <span>새 모델</span>
+            <span>규칙 모델</span>
             <strong>요일+최근사용량 모델</strong>
-            <p>
-              월 프로파일 균등 일할 값을 기본값으로 두고, 같은 건물의 전일 사용량과 최근 며칠 흐름을 섞어
-              하루 예측값을 조정합니다.
-            </p>
+            <p>월 프로파일 기준값에 전일 사용량, 최근 3일 평균, 최근 7일 평균, 전주 같은 요일 값을 섞습니다.</p>
           </article>
           <article>
             <span>비교용 머신러닝 모델</span>
             <strong>LightGBM q50 walk-forward</strong>
+            <p>과거 검증일 데이터를 순차적으로 학습해 다음 날짜를 예측합니다. random shuffle은 쓰지 않습니다.</p>
+          </article>
+          <article>
+            <span>현재 champion</span>
+            <strong>LightGBM + weather + area-v2</strong>
             <p>
-              사람이 정한 고정 가중치 대신 과거 검증일 데이터를 학습해 다음 날짜를 예측합니다.
-              현재 변수만으로 기존 규칙 기반 baseline보다 지표가 얼마나 나아지는지 확인하기 위한 모델입니다.
+              KMA 예보 기상 feature와 건물 면적 데이터를 결합한 후보가 이번 검증에서 가장 낮은 WAPE를 냈습니다.
+              학사일정 후보는 생성해 비교했지만 성능이 악화되면 champion에서 자동 제외합니다.
             </p>
           </article>
         </div>
@@ -142,30 +139,50 @@
             <strong>2026-04-10 예측에는 2026-04-09까지</strong>
           </div>
           <p>
-            당일 실제값과 이후 값은 사용하지 않습니다. 최근 사용량 feature는 항상 예측일보다 앞선 날짜에서만
-            계산합니다. 학교 전체 일별 실측 흐름, 학교 전체 일별 총량, 학교 전체 일별 비중도 예측 입력에서
-            제외합니다.
+            당일 실제값과 이후 값은 사용하지 않습니다. 최근 사용량 feature는 항상 예측일보다 앞선 날짜에서만 계산합니다.
+            LightGBM + weather + area 모델은 검증 구간에서 실제 기상이 아니라 전날까지 확인 가능한 예보 기상값을 사용합니다.
           </p>
+        </div>
+
+        <div class="weather-record">
+          <div>
+            <span>이번 실행 기록</span>
+            <strong>LightGBM + weather + area: 예보 기상 + 건물 면적 결합</strong>
+            <p>
+              KMA APIHub 단기예보를 영남대학교 경산캠퍼스 기준 격자에서 일별 feature로 만들고,
+              건물 면적 엑셀의 전용면적, 공용면적, 호실수, 층수를 결합했습니다.
+              검증 구간은 17개 건물 1,190행이며, 학사일정 후보까지 함께 비교한 뒤 champion을 자동 선택했습니다.
+            </p>
+          </div>
+          <dl>
+            <div><dt>전체 MAE</dt><dd>131.46 kWh</dd></div>
+            <div><dt>RMSE</dt><dd>221.95 kWh</dd></div>
+            <div><dt>WAPE</dt><dd>11.82%</dd></div>
+            <div><dt>총량 bias</dt><dd>-0.23%</dd></div>
+          </dl>
         </div>
 
         <div class="model-detail-grid">
           <article>
             <h3>입력 feature</h3>
             <ul>
-              <li>월 기준값: `profile_monthly_kwh_mean`, `calendar_days_in_month`, 월 프로파일 균등 일할</li>
+              <li>월 기준값: profile_monthly_kwh_mean, calendar_days_in_month, 월 프로파일 균등 일할</li>
               <li>날짜 정보: 요일, 주말 여부, 월, 일자</li>
               <li>최근 사용량: 전일 사용량, 최근 3일 평균, 최근 7일 평균, 전주 같은 요일</li>
-              <li>과거 요일 패턴: 2026년 3월 이전 건물별 요일 패턴이 있으면 사용</li>
+              <li>핵심 고도화 입력: 냉방도일, 난방도일, 강수량, 강수 여부, 건물 면적, 호실수, 층수, 면적당 월 사용량</li>
+              <li>기상: 냉방도일, 난방도일, 강수량, 강수 여부, 예보 발표 시점</li>
+              <li>건물 면적: 건물 면적, 호실수, 층수, 면적당 월 사용량</li>
+              <li>학사일정 후보: 수업 기간, 방학, 중간고사, 기말고사, 보강일, 강의평가 기간</li>
             </ul>
           </article>
 
           <article>
             <h3>fallback 규칙</h3>
             <ul>
-              <li>초반 날짜처럼 최근값이 부족하면 월 기준값으로 대신 채웁니다.</li>
-              <li>과거 같은 월/요일 패턴이 부족하면 건물 월 평균으로 대신합니다.</li>
-              <li>예측값은 음수가 되지 않도록 0 이상으로 제한합니다.</li>
-              <li>이번 체크아웃에는 2026년 3월 이전 건물별 일별 행이 없어 요일 패턴은 월 기준값으로 fallback됩니다.</li>
+              <li>초반 날짜처럼 최근값이 부족하면 월 기준값으로 빈 값을 채웁니다.</li>
+              <li>건물 면적을 매칭하지 못한 건물은 area_missing으로 표시하고 중위값 계열 fallback을 씁니다.</li>
+              <li>학사일정은 과거 연도 전체 패턴을 무리하게 암기하지 않도록 굵은 이벤트 플래그만 씁니다.</li>
+              <li>후보 모델은 같은 walk-forward 검증에서 WAPE와 MAE를 비교해 champion을 고릅니다.</li>
             </ul>
           </article>
         </div>
@@ -200,40 +217,19 @@
         <div class="panel-heading">
           <div>
             <h2>공정성 진단</h2>
-            <p>이 모델을 에너지 절약 경쟁의 self-relative baseline으로 써도 되는지 검증합니다.</p>
+            <p>이 모델을 에너지 절약 성과의 self-relative baseline으로 써도 되는지 검증합니다.</p>
           </div>
-          <strong class="verdict-badge">공정성 baseline 판정: 아직 신뢰 불가</strong>
+          <strong class="verdict-badge">공정성 baseline 판정: 아직 보류</strong>
         </div>
 
-        <div class="fairness-summary-grid" id="fairnessKpis">
-          <article>
-            <span>검증 방식</span>
-            <strong>walk-forward</strong>
-            <p>과거 데이터로 다음 날짜를 예측합니다. random shuffle은 시계열 누수라 쓰지 않습니다.</p>
-          </article>
-          <article>
-            <span>naive baseline 대비</span>
-            <strong>비교 필요</strong>
-            <p>지난주 같은 요일 같은 단순 기준선을 못 이기면 모델이 일을 못 하는 것입니다.</p>
-          </article>
-          <article>
-            <span>calibration</span>
-            <strong>90% 예측구간 확인</strong>
-            <p>90% 구간이면 실제값도 약 90% 들어와야 합니다. 낮으면 사용자를 부당하게 평가할 수 있습니다.</p>
-          </article>
-          <article>
-            <span>잔차 무편향성</span>
-            <strong>0 근처가 목표</strong>
-            <p>잔차가 요일, 주말, 사용량 규모, 건물군과 계속 엮이면 공정성 기준선으로 위험합니다.</p>
-          </article>
-        </div>
+        <div class="fairness-summary-grid" id="fairnessKpis"></div>
 
         <div class="plain-explanation">
           <strong>쉽게 말하면</strong>
           <p>
-            기준선은 "이 조건이면 원래 이 정도는 쓸 건물"이라는 출발선입니다.
+            기준선은 "이 조건이면 원래 이 정도 쓰는 건물"이라는 출발선입니다.
             출발선이 너무 낮으면 그 건물은 절약하기 쉬워 보이고, 너무 높으면 절약해도 불리해집니다.
-            그래서 평균 오차보다 bias, coverage, 그룹 편향을 먼저 봅니다.
+            그래서 평균 오차뿐 아니라 bias, coverage, 건물별 치우침을 같이 봅니다.
           </p>
         </div>
 
@@ -262,7 +258,7 @@
                 <thead>
                   <tr>
                     <th>구간</th>
-                    <th>명목</th>
+                    <th>목표</th>
                     <th>실제</th>
                     <th>차이</th>
                   </tr>
@@ -278,7 +274,8 @@
               <table>
                 <thead>
                   <tr>
-                    <th>분위수</th>
+                    <th>모델</th>
+                    <th>분위</th>
                     <th>loss</th>
                   </tr>
                 </thead>
@@ -288,7 +285,7 @@
           </article>
 
           <article>
-            <h3>잔차 무편향성</h3>
+            <h3>오차 무편향성</h3>
             <div class="table-wrap compact-table">
               <table>
                 <thead>
@@ -316,8 +313,8 @@
         </div>
 
         <p class="fairness-note">
-          현재 입력에는 기온, 습도, 강수량, 방학, 시간대 feature가 없습니다. 따라서 더우면 냉방 사용량이 증가하는지 같은
-          SHAP 방향성은 아직 완전하게 검증할 수 없습니다.
+          LightGBM + weather + area-v2는 현재 가장 좋은 오차 지표를 냈지만, 90% 예측구간 coverage는 아직 낮습니다.
+          따라서 실제 보상/패널티 기준선으로 쓰려면 quantile 보정과 건물군별 잔차 점검이 추가로 필요합니다.
         </p>
       </section>
 
@@ -359,7 +356,7 @@
           <div class="panel-heading">
             <div>
               <h2>월별 성능</h2>
-              <p>검증 대상 행 기준</p>
+              <p>검증 대상 월 기준</p>
             </div>
           </div>
           <div class="comparison" id="monthComparison"></div>
@@ -381,7 +378,7 @@
                   <th>건물</th>
                   <th>MAE</th>
                   <th>RMSE</th>
-                  <th>MAPE</th>
+                  <th>비율오차</th>
                   <th>Bias</th>
                 </tr>
               </thead>
@@ -415,6 +412,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=ml-baseline-v1"></script>
+    <script src="./app.js?v=lightgbm-area-academic-v2"></script>
   </body>
 </html>
