@@ -1,0 +1,16 @@
+{
+  "coverage": 0.56875,
+  "pinball_p10": 72.51511105917774,
+  "pinball_p50": 112.28274212896216,
+  "pinball_p90": 63.87509587578563,
+  "p50_wape": 0.07153278543345841,
+  "p50_mae_kwh": 224.5654842579243,
+  "p50_rmse_kwh": 405.12890144919623,
+  "p50_bias_pct": -0.022712916770001035,
+  "overuse_hours": 142,
+  "underuse_hours": 65,
+  "overuse_total_exceedance_kwh": 23807.217976101194,
+  "mean_band_width_kwh": 439.55309789770024,
+  "actual_sum_kwh": 1506881.52,
+  "n_rows": 480
+}

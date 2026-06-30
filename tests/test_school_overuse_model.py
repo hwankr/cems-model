@@ -91,3 +91,38 @@ def test_fallback_regressor_used_when_no_lightgbm(monkeypatch):
     preds = result.predictions
     assert (preds["p10_kwh"] <= preds["p90_kwh"] + 1e-6).all()
     assert result.used_fallback is True
+
+
+def test_explain_band_schema(tmp_path):
+    data_path = Path("school_power_usage_split/ml_ready/power_usage_1hour_ml.csv")
+    frame = som.build_modeling_frame(data_path)
+    train, validation = som.split_train_validation(frame, "2026-06-01 00:00:00", "2026-06-20 23:00:00")
+    band = som.train_quantile_band(train, validation)
+    flagged = som.flag_overuse(band.predictions)
+    explanations, importance, shap_available = som.explain_band(
+        band.p50_model, band.x_validation, flagged, band.feature_columns, top_k=5
+    )
+    assert set(["timestamp", "rank", "feature", "feature_label_ko", "shap_value_kwh", "feature_value", "direction"]).issubset(explanations.columns)
+    assert (explanations["rank"] >= 1).all() and (explanations["rank"] <= 5).all()
+    assert set(["feature", "feature_label_ko", "mean_abs_shap"]).issubset(importance.columns)
+    # every explained timestamp is an over-use hour
+    overuse_ts = set(flagged.loc[flagged["is_overuse"], "timestamp"])
+    assert set(explanations["timestamp"]).issubset(overuse_ts)
+
+
+def test_run_school_overuse_model_writes_artifacts(tmp_path):
+    out = tmp_path / "outputs"
+    web = tmp_path / "school_overuse_web"
+    result = som.run_school_overuse_model(output_dir=out, web_dir=web)
+    for name in ["school_overuse_predictions.csv", "school_overuse_explanations.csv",
+                 "school_overuse_feature_importance.csv", "school_overuse_daily_summary.csv",
+                 "school_overuse_metrics.json", "school_overuse_run_summary.json"]:
+        assert (out / name).exists()
+    monitor = web / "data" / "monitor.json"
+    assert monitor.exists()
+    import json
+    bundle = json.loads(monitor.read_text(encoding="utf-8"))
+    assert set(["meta", "metrics", "baselines", "series", "overuse", "feature_importance", "glossary"]).issubset(bundle)
+    assert bundle["meta"]["validation_rows"] == len(bundle["series"])
+    assert 0.0 <= bundle["metrics"]["coverage"] <= 1.0
+    assert result.validation_rows == bundle["meta"]["validation_rows"]

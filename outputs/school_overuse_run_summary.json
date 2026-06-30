@@ -1,0 +1,12 @@
+{
+  "validation_start": "2026-06-01 00:00:00",
+  "validation_end": "2026-06-20 23:00:00",
+  "validation_rows": 480,
+  "validation_days": 20,
+  "coverage": 0.56875,
+  "overuse_hours": 142,
+  "overuse_total_exceedance_kwh": 23807.218,
+  "p50_wape": 0.071533,
+  "used_fallback": false,
+  "shap_available": true
+}

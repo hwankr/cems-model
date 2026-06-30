@@ -192,3 +192,449 @@ def compute_band_metrics(predictions: pd.DataFrame) -> dict:
         "actual_sum_kwh": actual_sum,
         "n_rows": int(len(df)),
     }
+
+
+# ---------------------------------------------------------------------------
+# Task 2: SHAP explanations
+# ---------------------------------------------------------------------------
+
+GLOSSARY: list[dict] = [
+    {
+        "term": "분위수(Quantile)",
+        "desc": "데이터를 크기순으로 줄 세웠을 때 특정 비율 위치의 값. P90 = 하위 90% 지점.",
+    },
+    {
+        "term": "P10 / P50 / P90",
+        "desc": "이 시간에 '정상이라면' 사용량이 P10 이상일 확률 90%, P50(중앙값) 근처가 가장 그럴듯, P90 이하일 확률 90%. [P10,P90] 안에 정상의 약 80%가 들어옴.",
+    },
+    {
+        "term": "정상 밴드 / 과다사용",
+        "desc": "[P10,P90]가 정상 범위. 실제 > P90이면 과다사용, 초과량 = 실제 − P90.",
+    },
+    {
+        "term": "day-ahead(하루 전 기준)",
+        "desc": "당일 직전 관측을 안 쓰고 날짜·요일·시간·예보날씨·학사일정·과거 부하만으로 기대치를 만든 것. 그래서 '지금 평소보다 많이 쓰는 중'을 잡아낼 수 있음.",
+    },
+    {
+        "term": "SHAP",
+        "desc": "트리 모델의 예측을 각 피처가 얼마나 끌어올리고/내렸는지 kWh 단위로 분해한 기여도. '기온 +120, 시험기간 +80 …' 식.",
+    },
+    {
+        "term": "WAPE",
+        "desc": "가중 절대 백분율 오차 = Σ|예측−실제| / Σ실제. 낮을수록 정확.",
+    },
+    {
+        "term": "Pinball loss",
+        "desc": "분위수 예측 품질 지표. 낮을수록 분위수가 잘 맞음.",
+    },
+    {
+        "term": "Coverage(적중률)",
+        "desc": "실제값이 [P10,P90] 안에 든 비율. 잘 보정되면 ≈80%.",
+    },
+    {
+        "term": "CDD/HDD",
+        "desc": "냉방·난방 도일(degree-day). 기준온도 대비 더운/추운 정도의 누적량 → 냉난방 전력 수요 대리지표.",
+    },
+]
+
+
+def explain_band(
+    p50_model,
+    x_validation: pd.DataFrame,
+    predictions: pd.DataFrame,
+    feature_columns: list[str],
+    top_k: int = 5,
+) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
+    """Compute SHAP explanations for over-use rows.
+
+    Returns (explanations_long_df, global_importance_df, shap_available).
+    Falls back to feature_importances_ when SHAP is unavailable or model is
+    QuantileFallbackRegressor.
+    """
+    overuse_mask = predictions["is_overuse"].fillna(False).astype(bool)
+    overuse_idx = predictions.index[overuse_mask].tolist()
+
+    shap_available = False
+    shap_values = None
+
+    if not isinstance(p50_model, QuantileFallbackRegressor):
+        try:
+            import shap as _shap
+
+            # Use the underlying booster for LightGBM to avoid shap version issues
+            booster = getattr(p50_model, "booster_", p50_model)
+            explainer = _shap.TreeExplainer(booster)
+            # Compute SHAP for all validation rows (needed for global importance)
+            x_val_arr = x_validation[feature_columns].values
+            shap_raw = explainer.shap_values(x_val_arr)
+            # shap_raw may be 2-D array (n_rows, n_features) for regression
+            if isinstance(shap_raw, list):
+                shap_raw = shap_raw[0]
+            shap_values = shap_raw  # shape (n_rows, n_features)
+            shap_available = True
+        except Exception:
+            shap_values = None
+
+    # Build global importance
+    if shap_values is not None:
+        mean_abs = np.abs(shap_values).mean(axis=0)
+        global_importance_df = pd.DataFrame(
+            {
+                "feature": feature_columns,
+                "feature_label_ko": [feature_label_ko(f) for f in feature_columns],
+                "mean_abs_shap": mean_abs,
+            }
+        ).sort_values("mean_abs_shap", ascending=False).reset_index(drop=True)
+    else:
+        # Fallback: use feature_importances_ if available
+        fi = getattr(p50_model, "feature_importances_", None)
+        if fi is not None and len(fi) == len(feature_columns):
+            mean_abs = fi.astype(float)
+        else:
+            mean_abs = np.zeros(len(feature_columns))
+        global_importance_df = pd.DataFrame(
+            {
+                "feature": feature_columns,
+                "feature_label_ko": [feature_label_ko(f) for f in feature_columns],
+                "mean_abs_shap": mean_abs,
+            }
+        ).sort_values("mean_abs_shap", ascending=False).reset_index(drop=True)
+
+    # Build per-overuse-row explanations in long format
+    rows = []
+    for idx in overuse_idx:
+        row_pred = predictions.loc[idx]
+        ts = row_pred.get("timestamp", None)
+        rd = row_pred.get("report_date", None)
+        hr = row_pred.get("hour", None)
+
+        if shap_values is not None:
+            sv = shap_values[idx]  # shape (n_features,)
+            # top_k by |shap|
+            abs_sv = np.abs(sv)
+            top_indices = np.argsort(abs_sv)[::-1][:top_k]
+            for rank, fi_idx in enumerate(top_indices, start=1):
+                feat = feature_columns[fi_idx]
+                sv_val = float(sv[fi_idx])
+                fv = float(x_validation[feature_columns[fi_idx]].iloc[idx]) if fi_idx < len(feature_columns) else float("nan")
+                rows.append(
+                    {
+                        "timestamp": ts,
+                        "report_date": rd,
+                        "hour": hr,
+                        "rank": rank,
+                        "feature": feat,
+                        "feature_label_ko": feature_label_ko(feat),
+                        "shap_value_kwh": sv_val,
+                        "feature_value": fv,
+                        "direction": "up" if sv_val > 0 else "down",
+                    }
+                )
+        else:
+            # Fallback: use global importance ordering, shap_value_kwh = 0
+            top_feats = global_importance_df["feature"].tolist()[:top_k]
+            for rank, feat in enumerate(top_feats, start=1):
+                try:
+                    fv = float(x_validation[feat].iloc[idx])
+                except Exception:
+                    fv = float("nan")
+                rows.append(
+                    {
+                        "timestamp": ts,
+                        "report_date": rd,
+                        "hour": hr,
+                        "rank": rank,
+                        "feature": feat,
+                        "feature_label_ko": feature_label_ko(feat),
+                        "shap_value_kwh": 0.0,
+                        "feature_value": fv,
+                        "direction": "up",
+                    }
+                )
+
+    if rows:
+        explanations_long = pd.DataFrame(rows)
+    else:
+        explanations_long = pd.DataFrame(
+            columns=[
+                "timestamp", "report_date", "hour", "rank", "feature",
+                "feature_label_ko", "shap_value_kwh", "feature_value", "direction",
+            ]
+        )
+
+    return explanations_long, global_importance_df, shap_available
+
+
+# ---------------------------------------------------------------------------
+# Task 2: run pipeline + output writers
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SchoolOveruseRunResult:
+    output_dir: Path
+    validation_rows: int
+    validation_days: int
+    coverage: float
+    overuse_hours: int
+    overuse_total_exceedance_kwh: float
+    p50_wape: float
+    used_fallback: bool
+    shap_available: bool
+
+
+def _score_naive(predictions: pd.DataFrame, col: str, actual_col: str = "actual_kwh") -> dict:
+    """WAPE/MAE/RMSE for a naive prediction column."""
+    df = predictions.dropna(subset=[actual_col, col]).copy()
+    actual = pd.to_numeric(df[actual_col], errors="coerce")
+    pred = pd.to_numeric(df[col], errors="coerce")
+    abs_err = (pred - actual).abs()
+    actual_sum = float(actual.sum())
+    wape = float(abs_err.sum() / actual_sum) if actual_sum else float("nan")
+    mae = float(abs_err.mean())
+    rmse = float(np.sqrt(((pred - actual) ** 2).mean()))
+    return {"wape": round(wape, 6), "mae_kwh": round(mae, 4), "rmse_kwh": round(rmse, 4)}
+
+
+def _build_monitor_bundle(
+    predictions_flagged: pd.DataFrame,
+    metrics: dict,
+    explanations_long: pd.DataFrame,
+    global_importance: pd.DataFrame,
+    validation_start: str,
+    validation_end: str,
+    shap_available: bool,
+    used_fallback: bool,
+) -> dict:
+    """Build the monitor.json schema dict."""
+
+    validation_rows = int(len(predictions_flagged))
+    validation_days = int(predictions_flagged["report_date"].nunique()) if "report_date" in predictions_flagged.columns else 0
+
+    # series: sorted by timestamp
+    series_rows = []
+    for _, r in predictions_flagged.sort_values("timestamp").iterrows():
+        series_rows.append(
+            {
+                "timestamp": str(r["timestamp"]) if not pd.isnull(r["timestamp"]) else "",
+                "report_date": str(r.get("report_date", "")),
+                "hour": int(r.get("hour", 0)) if not pd.isnull(r.get("hour", 0)) else 0,
+                "actual": round(float(r["actual_kwh"]), 2) if not pd.isnull(r.get("actual_kwh")) else None,
+                "p10": round(float(r["p10_kwh"]), 2),
+                "p50": round(float(r["p50_kwh"]), 2),
+                "p90": round(float(r["p90_kwh"]), 2),
+                "in_band": bool(r.get("in_normal_band", False)),
+                "is_overuse": bool(r.get("is_overuse", False)),
+                "exceedance_kwh": round(float(r.get("exceedance_kwh", 0.0)), 2),
+                "exceedance_pct": round(float(r.get("exceedance_pct", 0.0)), 2) if not pd.isnull(r.get("exceedance_pct", 0.0)) else 0.0,
+                "band_position": round(float(r.get("band_position", 0.0)), 2) if not pd.isnull(r.get("band_position", 0.0)) else 0.0,
+            }
+        )
+
+    # overuse: sorted by exceedance_kwh desc, with explanations embedded
+    overuse_rows = []
+    overuse_df = predictions_flagged[predictions_flagged["is_overuse"].fillna(False)].sort_values(
+        "exceedance_kwh", ascending=False
+    )
+    for _, r in overuse_df.iterrows():
+        ts = r["timestamp"]
+        row_expl = []
+        if not explanations_long.empty and "timestamp" in explanations_long.columns:
+            sub = explanations_long[explanations_long["timestamp"] == ts].sort_values("rank")
+            for _, e in sub.iterrows():
+                row_expl.append(
+                    {
+                        "feature": str(e["feature"]),
+                        "label_ko": str(e["feature_label_ko"]),
+                        "shap_kwh": round(float(e["shap_value_kwh"]), 4),
+                        "feature_value": round(float(e["feature_value"]), 4) if not pd.isnull(e["feature_value"]) else None,
+                        "direction": str(e["direction"]),
+                    }
+                )
+        overuse_rows.append(
+            {
+                "timestamp": str(ts),
+                "report_date": str(r.get("report_date", "")),
+                "hour": int(r.get("hour", 0)) if not pd.isnull(r.get("hour", 0)) else 0,
+                "actual": round(float(r["actual_kwh"]), 2) if not pd.isnull(r.get("actual_kwh")) else None,
+                "p50": round(float(r["p50_kwh"]), 2),
+                "p90": round(float(r["p90_kwh"]), 2),
+                "exceedance_kwh": round(float(r.get("exceedance_kwh", 0.0)), 2),
+                "exceedance_pct": round(float(r.get("exceedance_pct", 0.0)), 2) if not pd.isnull(r.get("exceedance_pct", 0.0)) else 0.0,
+                "explanations": row_expl,
+            }
+        )
+
+    # baselines
+    actual_col = "actual_kwh"
+    naive_cols = {
+        "naive_last_day_same_hour": "pred_last_day_same_hour_kwh",
+        "naive_last_week_same_hour": "pred_last_week_same_hour_kwh",
+        "naive_same_hour_7d_mean": "pred_same_hour_7d_mean_kwh",
+    }
+    baselines = [
+        {
+            "model": "P50 (quantile median)",
+            "wape": round(metrics["p50_wape"], 6),
+            "mae_kwh": round(metrics["p50_mae_kwh"], 4),
+            "rmse_kwh": round(metrics["p50_rmse_kwh"], 4),
+        }
+    ]
+    for label, col in naive_cols.items():
+        if col in predictions_flagged.columns:
+            sc = _score_naive(predictions_flagged, col, actual_col)
+            baselines.append({"model": label, **sc})
+
+    # feature importance
+    fi_list = []
+    for _, row in global_importance.iterrows():
+        fi_list.append(
+            {
+                "feature": str(row["feature"]),
+                "label_ko": str(row["feature_label_ko"]),
+                "mean_abs_shap": round(float(row["mean_abs_shap"]), 4),
+            }
+        )
+
+    # metrics – round all float values to 2 decimals
+    metrics_rounded = {
+        k: (round(v, 4) if isinstance(v, float) else v) for k, v in metrics.items()
+    }
+    metrics_rounded["coverage_target"] = 0.8
+
+    return {
+        "meta": {
+            "validation_start": validation_start,
+            "validation_end": validation_end,
+            "validation_rows": validation_rows,
+            "validation_days": validation_days,
+            "quantiles": list(QUANTILES),
+            "base_model": "lightgbm_quantile_day_ahead_weather_academic",
+            "feature_contract": "day-ahead",
+            "shap_available": shap_available,
+            "used_fallback": used_fallback,
+            "generated_note": "Generated by modeling/school_overuse_model.py",
+        },
+        "metrics": metrics_rounded,
+        "baselines": baselines,
+        "series": series_rows,
+        "overuse": overuse_rows,
+        "feature_importance": fi_list,
+        "glossary": GLOSSARY,
+    }
+
+
+def run_school_overuse_model(
+    data_path: Path = DEFAULT_DATA_PATH,
+    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    validation_start: str = DEFAULT_VALIDATION_START,
+    validation_end: str = DEFAULT_VALIDATION_END,
+    web_dir: Path = Path("school_overuse_web"),
+    actual_weather_path: Path | None = DEFAULT_ACTUAL_WEATHER_PATH,
+    forecast_weather_path: Path | None = DEFAULT_FORECAST_WEATHER_PATH,
+    academic_features_path: Path | None = DEFAULT_ACADEMIC_FEATURES_PATH,
+) -> SchoolOveruseRunResult:
+    """Full training → prediction → explanation → output pipeline."""
+    import json as _json
+
+    output_dir = Path(output_dir)
+    web_dir = Path(web_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Build features
+    frame = build_modeling_frame(
+        data_path=data_path,
+        actual_weather_path=actual_weather_path,
+        forecast_weather_path=forecast_weather_path,
+        academic_features_path=academic_features_path,
+        validation_start=validation_start,
+    )
+
+    # 2. Train/validation split
+    train, validation = split_train_validation(frame, validation_start, validation_end)
+
+    # 3. Train quantile band
+    band_result = train_quantile_band(train, validation)
+
+    # 4. Flag over-use
+    flagged = flag_overuse(band_result.predictions)
+
+    # 5. Compute metrics
+    metrics = compute_band_metrics(flagged)
+
+    # 6. SHAP explanations
+    explanations_long, global_importance, shap_available = explain_band(
+        band_result.p50_model,
+        band_result.x_validation,
+        flagged,
+        band_result.feature_columns,
+    )
+
+    # 7. Build daily summary
+    daily_cols = ["report_date", "is_overuse", "exceedance_kwh", "actual_kwh", "in_normal_band"]
+    daily_avail = [c for c in daily_cols if c in flagged.columns]
+    daily_summary = (
+        flagged[daily_avail]
+        .groupby("report_date")
+        .agg(
+            overuse_hours=("is_overuse", "sum"),
+            total_exceedance_kwh=("exceedance_kwh", "sum"),
+            max_exceedance_kwh=("exceedance_kwh", "max"),
+            total_actual_kwh=("actual_kwh", "sum"),
+            coverage=("in_normal_band", "mean"),
+        )
+        .reset_index()
+    )
+
+    # 8. Save CSVs
+    flagged.to_csv(output_dir / "school_overuse_predictions.csv", index=False, encoding="utf-8-sig")
+    explanations_long.to_csv(output_dir / "school_overuse_explanations.csv", index=False, encoding="utf-8-sig")
+    global_importance.to_csv(output_dir / "school_overuse_feature_importance.csv", index=False, encoding="utf-8-sig")
+    daily_summary.to_csv(output_dir / "school_overuse_daily_summary.csv", index=False, encoding="utf-8-sig")
+
+    # 9. Save metrics JSON
+    with open(output_dir / "school_overuse_metrics.json", "w", encoding="utf-8") as f:
+        _json.dump(metrics, f, ensure_ascii=False, indent=2)
+
+    # 10. Save run summary JSON
+    run_summary = {
+        "validation_start": validation_start,
+        "validation_end": validation_end,
+        "validation_rows": metrics["n_rows"],
+        "validation_days": int(flagged["report_date"].nunique()) if "report_date" in flagged.columns else 0,
+        "coverage": round(metrics["coverage"], 6),
+        "overuse_hours": metrics["overuse_hours"],
+        "overuse_total_exceedance_kwh": round(metrics["overuse_total_exceedance_kwh"], 4),
+        "p50_wape": round(metrics["p50_wape"], 6),
+        "used_fallback": band_result.used_fallback,
+        "shap_available": shap_available,
+    }
+    with open(output_dir / "school_overuse_run_summary.json", "w", encoding="utf-8") as f:
+        _json.dump(run_summary, f, ensure_ascii=False, indent=2)
+
+    # 11. Build and save monitor.json
+    bundle = _build_monitor_bundle(
+        predictions_flagged=flagged,
+        metrics=metrics,
+        explanations_long=explanations_long,
+        global_importance=global_importance,
+        validation_start=validation_start,
+        validation_end=validation_end,
+        shap_available=shap_available,
+        used_fallback=band_result.used_fallback,
+    )
+    web_data_dir = web_dir / "data"
+    web_data_dir.mkdir(parents=True, exist_ok=True)
+    with open(web_data_dir / "monitor.json", "w", encoding="utf-8") as f:
+        _json.dump(bundle, f, ensure_ascii=False, indent=2)
+
+    return SchoolOveruseRunResult(
+        output_dir=output_dir,
+        validation_rows=metrics["n_rows"],
+        validation_days=run_summary["validation_days"],
+        coverage=metrics["coverage"],
+        overuse_hours=metrics["overuse_hours"],
+        overuse_total_exceedance_kwh=metrics["overuse_total_exceedance_kwh"],
+        p50_wape=metrics["p50_wape"],
+        used_fallback=band_result.used_fallback,
+        shap_available=shap_available,
+    )
