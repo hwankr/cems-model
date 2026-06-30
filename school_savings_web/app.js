@@ -216,7 +216,7 @@ function renderChart(data) {
           일 절감: ${avoided >= 0 ? '+' : ''}${fmt.num(avoided,1)} kWh
         </span>
         <span class="day-kpi-pill day-kpi-pill--${cls === 'saving' ? 'saving' : cls === 'overuse' ? 'overuse' : 'neutral'}">
-          절감률: ${(avoidPct*100 >= 0 ? '+' : '')+( avoidPct*100).toFixed(2)}%
+          절감률: ${(avoidPct >= 0 ? '+' : '')+avoidPct.toFixed(2)}%
         </span>
         <span class="day-kpi-pill day-kpi-pill--neutral">
           베이스라인: ${fmt.kwh(day.baseline_kwh)}
@@ -249,13 +249,18 @@ function renderChart(data) {
       + ' Z';
 
     // 절감 밴드: actual < p50 구간 (초록)
+    // SVG y축은 아래로 커지므로 actual < p50 → yActual > yP50 → 음수 height 방지
     let savingFills = [];
     rows.forEach((r,i) => {
       if (r.actual < r.p50) {
         const x = xScale(i);
         const yActual = yScale(r.actual);
         const yP50   = yScale(r.p50);
-        savingFills.push(`<rect x="${x-3}" y="${yActual}" width="6" height="${yP50-yActual}" fill="rgba(34,197,94,.18)" rx="1"/>`);
+        const rectY  = Math.min(yActual, yP50);
+        const rectH  = Math.abs(yP50 - yActual);
+        if (rectH > 0) {
+          savingFills.push(`<rect x="${x-3}" y="${rectY}" width="6" height="${rectH}" fill="rgba(34,197,94,.18)" rx="1"/>`);
+        }
       }
     });
 
@@ -462,7 +467,7 @@ function renderScorecard(data) {
       <strong>해석:</strong> 6월 전체 순 절감률은 약 <strong>${avoidPct.toFixed(2)}%</strong>로
       베이스라인 대비 거의 비슷하거나 약간 초과합니다.
       하지만 <strong>확실한 절감 시간(actual &lt; P10)이 ${sc.confirmed_saving_hours}시간</strong>으로
-      초과 시간(${sc.overuse_hours}시간)보다 약 ${Math.round(sc.confirmed_saving_hours / sc.overuse_hours * 10)/10}배 많습니다.
+      초과 시간(${sc.overuse_hours}시간)보다 약 ${sc.overuse_hours > 0 ? Math.round(sc.confirmed_saving_hours / sc.overuse_hours * 10)/10 + '배' : '—'} 많습니다.
       동결 베이스라인 덕분에 절감 여부를 공정하게 판단할 수 있습니다.
     </div>
   `;
