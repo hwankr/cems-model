@@ -147,6 +147,40 @@ def test_compute_band_metrics_coverage_raw_nan_without_raw_columns():
     assert metrics["coverage"] == pytest.approx(1 / 3)
 
 
+def test_explain_band_with_fallback_model():
+    """explain_band with QuantileFallbackRegressor must return empty per-row
+    explanations (no fabricated stubs) and a full global importance table."""
+    data_path = Path("school_power_usage_split/ml_ready/power_usage_1hour_ml.csv")
+    frame = som.build_modeling_frame(data_path)
+    train, validation = som.split_train_validation(
+        frame, "2026-06-01 00:00:00", "2026-06-20 23:00:00"
+    )
+    result = som.train_quantile_band(train, validation, model_factory=som.fallback_quantile_model_factory)
+    flagged = som.flag_overuse(result.predictions)
+    explanations, importance, shap_available = som.explain_band(
+        result.p50_model, result.x_validation, flagged, result.feature_columns, top_k=3
+    )
+
+    # shap must be unavailable for the fallback model
+    assert shap_available is False
+
+    # per-row explanations must be empty — no fabricated zero/"up" stubs
+    expected_cols = {"timestamp", "report_date", "hour", "rank", "feature",
+                     "feature_label_ko", "shap_value_kwh", "feature_value", "direction"}
+    assert expected_cols.issubset(set(explanations.columns)), (
+        f"explanations missing columns: {expected_cols - set(explanations.columns)}"
+    )
+    assert len(explanations) == 0, (
+        f"Expected 0 rows in fallback explanations, got {len(explanations)}"
+    )
+
+    # global importance must have one row per feature
+    assert set(["feature", "feature_label_ko", "mean_abs_shap"]).issubset(set(importance.columns))
+    assert len(importance) == len(result.feature_columns), (
+        f"global importance rows {len(importance)} != n_features {len(result.feature_columns)}"
+    )
+
+
 def test_run_school_overuse_model_writes_artifacts(tmp_path):
     out = tmp_path / "outputs"
     web = tmp_path / "school_overuse_web"

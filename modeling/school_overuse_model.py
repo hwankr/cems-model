@@ -179,16 +179,17 @@ def train_quantile_band(
         if isinstance(model, QuantileFallbackRegressor):
             used_fallback = True
         model.fit(x_train, y_train)
-        val_pred = np.maximum(model.predict(x_validation), 0)
-        preds[quantile_cols[q]] = val_pred
         if q == 0.5:
             p50_model = model
         if do_calibrate:
             calib_preds[q] = model.predict(x_calib)  # raw, may be negative
-            val_raw[q] = val_pred.copy()
+            val_raw[q] = model.predict(x_validation)  # unclipped raw, symmetric with calib
+        else:
+            val_pred = np.maximum(model.predict(x_validation), 0)
+            preds[quantile_cols[q]] = val_pred
 
     if do_calibrate:
-        # Raw band on calib (before CQR adjustment)
+        # Raw band on calib (unclipped, same basis as conformity scores)
         p10_raw_calib = calib_preds[0.1]
         p90_raw_calib = calib_preds[0.9]
         y_calib = pd.to_numeric(calib_train[TARGET_COLUMN], errors="coerce").to_numpy()
@@ -204,10 +205,10 @@ def train_quantile_band(
         preds["p10_raw_kwh"] = np.maximum(val_raw[0.1], 0)
         preds["p90_raw_kwh"] = np.maximum(val_raw[0.9], 0)
 
-        # Calibrated validation band
-        p10_cal = np.maximum(val_raw[0.1] - Q, 0)
-        p90_cal = val_raw[0.9] + Q
-        p50_val = np.maximum(preds["p50_kwh"].to_numpy(), 0)
+        # Calibrated validation band: apply CQR offset on unclipped basis, then clip final result
+        p10_cal = val_raw[0.1] - Q  # unclipped, symmetric with calibration
+        p90_cal = val_raw[0.9] + Q  # unclipped, symmetric with calibration
+        p50_val = val_raw[0.5]  # unclipped median
 
         # Row-wise sort [p10, p50, p90] to enforce monotonicity, clip >=0
         band = np.stack([p10_cal, p50_val, p90_cal], axis=1)
@@ -365,8 +366,10 @@ def explain_band(
     """Compute SHAP explanations for over-use rows.
 
     Returns (explanations_long_df, global_importance_df, shap_available).
-    Falls back to feature_importances_ when SHAP is unavailable or model is
-    QuantileFallbackRegressor.
+    When shap_available is False, explanations_long will have the correct columns
+    but ZERO rows — callers should rely on the meta.shap_available flag or the
+    fallback banner rather than per-row attribution.  Global importance uses
+    feature_importances_ when available; otherwise all-zero weights are returned.
     """
     # Reset indices so that positional access into shap_values (numpy array)
     # and x_validation always aligns with row labels — robust to non-default index.
@@ -458,27 +461,7 @@ def explain_band(
                         "direction": "up" if sv_val > 0 else "down",
                     }
                 )
-        else:
-            # Fallback: use global importance ordering, shap_value_kwh = 0
-            top_feats = global_importance_df["feature"].tolist()[:top_k]
-            for rank, feat in enumerate(top_feats, start=1):
-                try:
-                    fv = float(x_validation.loc[idx, feat])
-                except Exception:
-                    fv = float("nan")
-                rows.append(
-                    {
-                        "timestamp": ts,
-                        "report_date": rd,
-                        "hour": hr,
-                        "rank": rank,
-                        "feature": feat,
-                        "feature_label_ko": feature_label_ko(feat),
-                        "shap_value_kwh": 0.0,
-                        "feature_value": fv,
-                        "direction": "up",
-                    }
-                )
+        # else: shap_values is None — no per-row attribution without SHAP; skip row.
 
     if rows:
         explanations_long = pd.DataFrame(rows)
