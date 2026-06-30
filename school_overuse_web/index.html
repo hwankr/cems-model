@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>학교 전력 과다사용 모니터</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header>
+  <h1>학교 전력 과다사용 모니터</h1>
+  <span class="header-badge">day-ahead · CQR 보정</span>
+</header>
+
+<!-- 폴백 배너: shap_available=false 또는 used_fallback=true 일 때 표시 -->
+<div id="fallback-banner">
+  ⚠ SHAP 설명이 없거나 폴백 모드입니다. 피처 중요도(Feature Importance)로 대체 표시합니다.
+</div>
+
+<!-- 탭 네비게이션 -->
+<nav class="tabs" role="tablist" aria-label="대시보드 탭">
+  <button role="tab" class="active" data-tab="overview"   aria-selected="true"  aria-controls="panel-overview">개요</button>
+  <button role="tab"               data-tab="timeseries"  aria-selected="false" aria-controls="panel-timeseries">시계열 모니터</button>
+  <button role="tab"               data-tab="overuse"     aria-selected="false" aria-controls="panel-overuse">과다사용 분석</button>
+  <button role="tab"               data-tab="accuracy"    aria-selected="false" aria-controls="panel-accuracy">모델 정확도</button>
+  <button role="tab"               data-tab="glossary"    aria-selected="false" aria-controls="panel-glossary">용어 설명</button>
+</nav>
+
+<main>
+
+  <!-- ======================= PANEL 1: 개요 ======================= -->
+  <section id="panel-overview" class="panel active" role="tabpanel" aria-labelledby="tab-overview">
+    <p class="section-title">개요</p>
+    <p class="section-subtitle">검증 기간 데이터 기반 과다사용 요약</p>
+
+    <!-- 소개 문단 -->
+    <div class="info-box" style="margin-bottom: 20px;">
+      <p>
+        이 대시보드는 학교 건물 전체의 시간별 전력 사용량을 <strong>day-ahead(하루 전)</strong> 예측 모델과
+        비교하여, 어느 시간이 <strong>정상 범위</strong>(P10~P90 정상밴드)를 초과하는 <strong>과다사용</strong>인지
+        알려줍니다. 모델은 과거 사용 패턴, KMA 날씨 예보, 학사일정을 입력으로 받아
+        LightGBM 분위수 회귀로 P10·P50·P90을 예측하며, 최근 28일(5월) 데이터를
+        활용한 <strong>CQR(Conformal Quantile Regression)</strong> 보정을 통해 정상밴드가
+        실제값을 80% 적중하도록 조정합니다.
+        실제가 P90을 넘으면 과다사용이며, 초과량(kWh)과 그 시간의 SHAP 예측 근거를
+        함께 제공합니다.
+      </p>
+    </div>
+
+    <!-- KPI 카드 -->
+    <div class="kpi-grid" id="kpi-grid">
+      <div class="kpi-card neutral">
+        <div class="kpi-label">검증 기간</div>
+        <div class="kpi-value" id="kpi-period" style="font-size:14px; line-height:1.4;">로딩중…</div>
+        <div class="kpi-sub" id="kpi-days"></div>
+      </div>
+      <div class="kpi-card neutral">
+        <div class="kpi-label">검증 시간 수</div>
+        <div class="kpi-value" id="kpi-rows">—</div>
+        <div class="kpi-sub">시간</div>
+      </div>
+      <div class="kpi-card" id="kpi-coverage-card">
+        <div class="kpi-label">정상밴드 적중률</div>
+        <div class="kpi-value" id="kpi-coverage">—</div>
+        <div class="kpi-sub" id="kpi-coverage-sub">목표 80%</div>
+      </div>
+      <div class="kpi-card danger">
+        <div class="kpi-label">과다사용 시간</div>
+        <div class="kpi-value" id="kpi-overuse-hrs">—</div>
+        <div class="kpi-sub" id="kpi-overuse-pct"></div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="kpi-label">총 초과 사용량</div>
+        <div class="kpi-value" id="kpi-excess">—</div>
+        <div class="kpi-sub">kWh</div>
+      </div>
+      <div class="kpi-card ok">
+        <div class="kpi-label">P50 예측 정확도(WAPE)</div>
+        <div class="kpi-value" id="kpi-wape">—</div>
+        <div class="kpi-sub">낮을수록 정확</div>
+      </div>
+    </div>
+
+    <!-- 보정 설명 -->
+    <div class="info-box note" id="calibration-note">
+      정상밴드는 최근 28일(5월) 데이터로 80% 적중하도록 보정(CQR)했고,
+      6월 검증 적중률은 <strong id="note-coverage">—</strong>%입니다.
+      80%보다 낮다면 6월이 정상 범위보다 높게 쓰였다는 뜻입니다.
+    </div>
+  </section>
+
+  <!-- ======================= PANEL 2: 시계열 모니터 ======================= -->
+  <section id="panel-timeseries" class="panel" role="tabpanel" aria-labelledby="tab-timeseries">
+    <p class="section-title">시계열 모니터</p>
+    <p class="section-subtitle">날짜별 시간대 사용량과 정상밴드(P10~P90) 시각화</p>
+
+    <div class="chart-controls">
+      <label for="date-select">날짜 선택:</label>
+      <select id="date-select"></select>
+    </div>
+
+    <div class="chart-container">
+      <div id="timeseries-chart"></div>
+      <div class="legend">
+        <div class="legend-item"><span class="legend-swatch band"></span> 정상밴드 P10~P90</div>
+        <div class="legend-item"><span class="legend-swatch p50"></span> P50 예측</div>
+        <div class="legend-item"><span class="legend-swatch actual"></span> 실제 사용량</div>
+        <div class="legend-item"><span class="legend-swatch overuse"></span> 과다사용 (P90 초과)</div>
+      </div>
+    </div>
+
+    <div class="info-box" style="font-size:13px; color:#4a5568;">
+      <p>
+        <strong>정상밴드(P10~P90)</strong>: 날씨·요일·학사일정·과거 패턴을 반영한 LightGBM day-ahead 모델이
+        예측한 정상 범위입니다. CQR 보정으로 80% 적중을 목표로 합니다.
+        실선(실제)이 밴드를 위로 벗어나면 <span style="color:var(--color-overuse); font-weight:700;">과다사용</span>입니다.
+      </p>
+    </div>
+  </section>
+
+  <!-- ======================= PANEL 3: 과다사용 분석 ======================= -->
+  <section id="panel-overuse" class="panel" role="tabpanel" aria-labelledby="tab-overuse">
+    <p class="section-title">과다사용 분석</p>
+    <p class="section-subtitle">P90(정상상한) 초과 72시간 목록 및 SHAP 예측 근거</p>
+
+    <div class="table-wrap">
+      <table id="overuse-table" aria-label="과다사용 시간 목록">
+        <thead>
+          <tr>
+            <th>시각</th>
+            <th>실제 (kWh)</th>
+            <th>P90 정상상한</th>
+            <th>초과량 (kWh)</th>
+            <th>초과 (%)</th>
+          </tr>
+        </thead>
+        <tbody id="overuse-tbody">
+          <tr><td colspan="5" style="text-align:center; color:#a0aec0; padding:20px;">로딩 중…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="overuse-detail" style="display:none;">
+      <div class="overuse-summary-line" id="overuse-summary-line"></div>
+      <div class="shap-chart-title">SHAP 예측 근거 (P50 기대값 분해)</div>
+      <div class="shap-bar-wrap" id="shap-bar-chart"></div>
+      <div class="shap-note">
+        SHAP는 모델이 이 시간의 '정상 기대값(P50)'을 왜 그렇게 봤는지를 분해한 것입니다.
+        <span style="color:var(--color-shap-up); font-weight:700;">빨강</span>은 기대를 높인 요인,
+        <span style="color:var(--color-shap-down); font-weight:700;">파랑</span>은 낮춘 요인이며,
+        실제가 상한을 넘은 초과분은 모델이 예상하지 못한 추가 사용량입니다.
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= PANEL 4: 모델 정확도 ======================= -->
+  <section id="panel-accuracy" class="panel" role="tabpanel" aria-labelledby="tab-accuracy">
+    <p class="section-title">모델 정확도</p>
+    <p class="section-subtitle">P50 예측 vs. naive 기준 모델 비교 및 밴드 성능</p>
+
+    <div class="table-wrap">
+      <table id="baseline-table" aria-label="모델 정확도 비교">
+        <thead>
+          <tr>
+            <th>모델</th>
+            <th>WAPE (%)</th>
+            <th>MAE (kWh)</th>
+            <th>RMSE (kWh)</th>
+          </tr>
+        </thead>
+        <tbody id="baseline-tbody">
+          <tr><td colspan="4" style="text-align:center; color:#a0aec0; padding:20px;">로딩 중…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="calibration-line" id="calibration-line">
+      정상밴드 적중률 <strong id="acc-coverage">—</strong>% (보정 전 <strong id="acc-coverage-raw">—</strong>%) / 목표 80%
+    </div>
+
+    <div class="pinball-grid">
+      <div class="pinball-card">
+        <div class="kpi-label">Pinball P10</div>
+        <div class="kpi-value" id="acc-pinball-p10">—</div>
+      </div>
+      <div class="pinball-card">
+        <div class="kpi-label">Pinball P50</div>
+        <div class="kpi-value" id="acc-pinball-p50">—</div>
+      </div>
+      <div class="pinball-card">
+        <div class="kpi-label">Pinball P90</div>
+        <div class="kpi-value" id="acc-pinball-p90">—</div>
+      </div>
+    </div>
+
+    <div class="info-box" style="margin-top: 20px; font-size:13px; color:#4a5568;">
+      <p>
+        <strong>WAPE(가중 절대 백분율 오차)</strong>: 낮을수록 P50 예측이 정확합니다.
+        LightGBM day-ahead 모델이 단순 naive 기준 대비 유의미하게 낮은 WAPE를 달성합니다.
+        <strong>Pinball loss</strong>: 분위수 예측 품질 지표로, 낮을수록 P10/P50/P90이 잘 맞습니다.
+        정상밴드 적중률(Coverage)은 CQR 보정으로 80%를 목표로 합니다.
+      </p>
+    </div>
+  </section>
+
+  <!-- ======================= PANEL 5: 용어 설명 ======================= -->
+  <section id="panel-glossary" class="panel" role="tabpanel" aria-labelledby="tab-glossary">
+    <p class="section-title">용어 설명</p>
+    <p class="section-subtitle">대시보드에서 사용하는 핵심 개념 안내</p>
+
+    <!-- 정적 핵심 용어 카드 (테스트에서 반드시 검출 필요) -->
+    <div class="glossary-grid">
+      <div class="glossary-card">
+        <h3>분위수(Quantile)</h3>
+        <p>데이터를 크기순으로 정렬했을 때 특정 비율 위치의 값. P90 = 상위 10% 경계값입니다.</p>
+      </div>
+      <div class="glossary-card">
+        <h3>P10 / P50 / P90</h3>
+        <p>
+          이 시간에 '정상이라면' 사용량이 P10 이상일 확률 90%, P50(중앙값)을 넘을 확률 50%,
+          P90을 넘을 확률 10%입니다. P90을 넘으면 과다사용으로 판정합니다.
+        </p>
+      </div>
+      <div class="glossary-card">
+        <h3>정상 밴드 / 과다사용</h3>
+        <p>
+          [P10, P90]이 정상 범위(정상밴드)입니다. 실제 &gt; P90이면 과다사용이며,
+          초과량 = 실제 − P90(kWh)입니다.
+        </p>
+      </div>
+      <div class="glossary-card">
+        <h3>day-ahead(하루 전 기준)</h3>
+        <p>
+          당일 직전 관측을 사용하지 않고 날짜·요일·시간·예보 날씨·학사일정·과거 부하만으로
+          다음 날 전체를 예측합니다. 실제 운영 환경에서 사용 가능한 공정한 예측 방식입니다.
+        </p>
+      </div>
+      <div class="glossary-card">
+        <h3>SHAP</h3>
+        <p>
+          트리 모델 예측을 각 피처가 얼마나 P50 기대값을 끌어올리거나 낮췄는지 kWh 단위로
+          분해한 값입니다. 빨강 = 기대를 높인 요인, 파랑 = 낮춘 요인.
+        </p>
+      </div>
+      <div class="glossary-card">
+        <h3>WAPE</h3>
+        <p>
+          가중 절대 백분율 오차 = Σ|예측−실제| / Σ실제. 낮을수록 P50 예측이 정확합니다.
+          이 모델은 7.6%로 단순 naive 대비 약 40~50% 오차 감소를 달성합니다.
+        </p>
+      </div>
+      <div class="glossary-card">
+        <h3>Pinball loss</h3>
+        <p>분위수 예측 품질 지표. 실제값이 분위수 아래/위에 있을 때 비대칭 패널티를 부여합니다. 낮을수록 분위수가 잘 맞습니다.</p>
+      </div>
+      <div class="glossary-card">
+        <h3>Coverage(적중률)</h3>
+        <p>실제값이 [P10, P90] 안에 든 비율. CQR(Conformal Quantile Regression) 보정으로 ≈80%를 목표합니다.</p>
+      </div>
+      <div class="glossary-card">
+        <h3>CDD/HDD</h3>
+        <p>
+          냉방·난방 도일(degree-day). 기준온도(18°C/20°C) 대비 더운/추운 정도의 누적 지표.
+          여름 냉방 수요 예측에 중요한 피처입니다.
+        </p>
+      </div>
+      <div class="glossary-card">
+        <h3>CQR(Conformal Quantile Regression)</h3>
+        <p>
+          분위수 예측을 보정하는 통계적 방법. 검증(보정) 데이터에서 오차 분포를 추정해
+          밴드 폭을 조정함으로써 실제 적중률이 목표(80%)에 맞도록 합니다.
+        </p>
+      </div>
+    </div>
+
+    <!-- JSON에서 동적으로 추가 로드 -->
+    <div class="glossary-grid" id="glossary-extra" style="margin-top:16px;"></div>
+  </section>
+
+</main>
+
+<!-- 툴팁 -->
+<div id="chart-tooltip"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
