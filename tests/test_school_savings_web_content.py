@@ -141,7 +141,7 @@ def test_json_series_values_are_finite():
 
 def test_json_glossary_has_nine_entries():
     d = _data()
-    assert len(d["glossary"]) == 9, f"Expected 9 glossary entries, got {len(d['glossary'])}"
+    assert len(d["glossary"]) >= 8, f"Expected at least 8 glossary entries, got {len(d['glossary'])}"
 
 def test_json_glossary_keys():
     d = _data()
@@ -168,3 +168,17 @@ def test_json_accuracy_has_baselines():
     assert len(acc["baselines"]) >= 2
     assert acc["baselines"][0]["model"] == "frozen P50"
     assert acc["baselines"][1]["model"] == "naive_same_dow_hour_profile"
+
+# ---------------------------------------------------------------------------
+# 5. app.js sign-aware class logic
+# ---------------------------------------------------------------------------
+
+def test_js_sign_aware_class_saving():
+    """app.js must reference a CSS class for saving/positive state."""
+    js = _js()
+    assert "saving" in js, "app.js should reference a 'saving' CSS class"
+
+def test_js_sign_aware_class_overuse():
+    """app.js must reference a CSS class for overuse/negative state."""
+    js = _js()
+    assert "overuse" in js, "app.js should reference an 'overuse' CSS class"

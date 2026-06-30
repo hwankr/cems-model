@@ -216,7 +216,7 @@ function renderChart(data) {
           일 절감: ${avoided >= 0 ? '+' : ''}${fmt.num(avoided,1)} kWh
         </span>
         <span class="day-kpi-pill day-kpi-pill--${cls === 'saving' ? 'saving' : cls === 'overuse' ? 'overuse' : 'neutral'}">
-          절감률: ${(avoidPct >= 0 ? '+' : '')+avoidPct.toFixed(2)}%
+          절감률: ${(avoidPct*100 >= 0 ? '+' : '')+(avoidPct*100).toFixed(2)}%
         </span>
         <span class="day-kpi-pill day-kpi-pill--neutral">
           베이스라인: ${fmt.kwh(day.baseline_kwh)}
