@@ -20,11 +20,11 @@
 
 <!-- 탭 네비게이션 -->
 <nav class="tabs" role="tablist" aria-label="대시보드 탭">
-  <button role="tab" class="active" data-tab="overview"   aria-selected="true"  aria-controls="panel-overview">개요</button>
-  <button role="tab"               data-tab="timeseries"  aria-selected="false" aria-controls="panel-timeseries">시계열 모니터</button>
-  <button role="tab"               data-tab="overuse"     aria-selected="false" aria-controls="panel-overuse">과다사용 분석</button>
-  <button role="tab"               data-tab="accuracy"    aria-selected="false" aria-controls="panel-accuracy">모델 정확도</button>
-  <button role="tab"               data-tab="glossary"    aria-selected="false" aria-controls="panel-glossary">용어 설명</button>
+  <button id="tab-overview"    role="tab" class="active" data-tab="overview"   aria-selected="true"  aria-controls="panel-overview">개요</button>
+  <button id="tab-timeseries"  role="tab"               data-tab="timeseries"  aria-selected="false" aria-controls="panel-timeseries">시계열 모니터</button>
+  <button id="tab-overuse"     role="tab"               data-tab="overuse"     aria-selected="false" aria-controls="panel-overuse">과다사용 분석</button>
+  <button id="tab-accuracy"    role="tab"               data-tab="accuracy"    aria-selected="false" aria-controls="panel-accuracy">모델 정확도</button>
+  <button id="tab-glossary"    role="tab"               data-tab="glossary"    aria-selected="false" aria-controls="panel-glossary">용어 설명</button>
 </nav>
 
 <main>
@@ -201,6 +201,11 @@
         <strong>Pinball loss</strong>: 분위수 예측 품질 지표로, 낮을수록 P10/P50/P90이 잘 맞습니다.
         정상밴드 적중률(Coverage)은 CQR 보정으로 80%를 목표로 합니다.
       </p>
+    </div>
+
+    <div class="feature-importance-section">
+      <p class="feature-importance-title">전역 피처 중요도 (평균 |SHAP|)</p>
+      <div id="feature-importance-list"></div>
     </div>
   </section>
 

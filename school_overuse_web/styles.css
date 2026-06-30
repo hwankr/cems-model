@@ -520,6 +520,22 @@ tbody td:first-child { text-align: left; font-weight: 600; }
   line-height: 1.7;
 }
 
+/* ---- Feature importance ---- */
+.feature-importance-section {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+  margin-top: 20px;
+}
+
+.feature-importance-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #4a5568;
+  margin-bottom: 14px;
+}
+
 /* ---- Responsive ---- */
 @media (max-width: 600px) {
   header { padding: 0 14px; }

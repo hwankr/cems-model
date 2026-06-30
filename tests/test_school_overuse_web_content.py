@@ -79,6 +79,9 @@ class SchoolOveruseWebHtmlContentTest(unittest.TestCase):
     def test_phrase_quantile(self):
         self._assert_contains("분위수")
 
+    def test_feature_importance_container(self):
+        self._assert_contains("feature-importance-list")
+
 
 class SchoolOveruseWebAppJsTest(unittest.TestCase):
     @classmethod
@@ -99,6 +102,9 @@ class SchoolOveruseWebAppJsTest(unittest.TestCase):
 
     def test_references_feature_importance(self):
         self._assert_contains("feature_importance")
+
+    def test_references_mean_abs_shap(self):
+        self._assert_contains("mean_abs_shap")
 
     def test_references_glossary(self):
         self._assert_contains("glossary")

@@ -71,6 +71,7 @@ function onDataReady(d) {
   renderDateSelect(d);
   renderOveruseTable(d);
   renderModelAccuracy(d);
+  renderFeatureImportance(d);
   renderGlossaryExtra(d);
 
   // Auto-select first overuse row
@@ -264,7 +265,6 @@ function renderTimeseriesChart() {
       posTooltip(e);
     });
     el.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
-    el.addEventListener('mousemove', posTooltip);
   });
 }
 
@@ -338,7 +338,7 @@ function renderShapBars(explanations) {
 
   wrap.innerHTML = explanations.map(e => {
     const pct = (Math.abs(e.shap_kwh) / maxAbs * 100).toFixed(1);
-    const dir = e.direction === 'up' ? 'up' : 'down';
+    const dir = e.shap_kwh >= 0 ? 'up' : 'down';
     const sign = e.shap_kwh >= 0 ? '+' : '';
     return `
       <div class="shap-bar-row">
@@ -355,8 +355,8 @@ function renderShapBars(explanations) {
 // ─── Panel 4: 모델 정확도 ────────────────────────────────────────────────────
 function renderModelAccuracy(d) {
   const tbody = $('#baseline-tbody');
-  tbody.innerHTML = d.baselines.map((b, i) => {
-    const isP50 = i === 0;
+  tbody.innerHTML = d.baselines.map((b) => {
+    const isP50 = b.model.toLowerCase().includes('p50');
     return `
       <tr class="${isP50 ? 'highlight-row' : ''}">
         <td>${escHtml(b.model)}</td>
@@ -373,6 +373,28 @@ function renderModelAccuracy(d) {
   $('#acc-pinball-p10').textContent  = mt.pinball_p10.toFixed(2);
   $('#acc-pinball-p50').textContent  = mt.pinball_p50.toFixed(2);
   $('#acc-pinball-p90').textContent  = mt.pinball_p90.toFixed(2);
+}
+
+// ─── Feature importance (accuracy panel) ─────────────────────────────────────
+function renderFeatureImportance(d) {
+  const container = $('#feature-importance-list');
+  if (!container || !d.feature_importance || d.feature_importance.length === 0) return;
+
+  const top10 = d.feature_importance.slice(0, 10);
+  const maxVal = top10[0].mean_abs_shap; // already sorted desc
+
+  container.innerHTML = top10.map(fi => {
+    const pct = (fi.mean_abs_shap / maxVal * 100).toFixed(1);
+    return `
+      <div class="shap-bar-row">
+        <div class="shap-bar-label" title="${escHtml(fi.feature)}">${escHtml(fi.label_ko)}</div>
+        <div class="shap-bar-track">
+          <div class="shap-bar-fill up" style="width:${pct}%;"></div>
+        </div>
+        <div class="shap-bar-value">${fmt1(fi.mean_abs_shap)}</div>
+      </div>
+    `;
+  }).join('');
 }
 
 // ─── Panel 5: 용어 설명 (dynamic extra) ──────────────────────────────────────
@@ -408,17 +430,3 @@ function escHtml(s) {
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 initTabs();
 loadData();
-
-// ─── Expose series/overuse/feature_importance/glossary references for tests ──
-// (These symbol names are referenced in the function bodies above, and here
-//  we explicitly name them to ensure grep-based content tests pass.)
-//
-// Data fields accessed: series, overuse, feature_importance, glossary
-// Quantile fields: p10, p50, p90, exceedance_kwh, exceedance_pct
-// Meta: validation_start, validation_end, validation_rows
-// Metrics: coverage, overuse_hours, overuse_total_exceedance_kwh, p50_wape
-// Baselines: model, wape, mae_kwh, rmse_kwh
-// Series row: timestamp, report_date, hour, actual, p10, p90, in_band,
-//             is_overuse, exceedance_kwh, band_position
-// Overuse row: explanations[].label_ko, shap_kwh, direction
-// feature_importance[].label_ko, mean_abs_shap
