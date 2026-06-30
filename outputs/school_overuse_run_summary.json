@@ -3,10 +3,23 @@
   "validation_end": "2026-06-20 23:00:00",
   "validation_rows": 480,
   "validation_days": 20,
-  "coverage": 0.56875,
-  "overuse_hours": 142,
-  "overuse_total_exceedance_kwh": 23807.218,
-  "p50_wape": 0.071533,
+  "coverage": 0.783333,
+  "coverage_raw": 0.589583,
+  "coverage_target": 0.8,
+  "overuse_hours": 72,
+  "underuse_hours": 32,
+  "overuse_total_exceedance_kwh": 17287.4572,
+  "p50_wape": 0.075749,
   "used_fallback": false,
-  "shap_available": true
+  "shap_available": true,
+  "calibration": {
+    "applied": true,
+    "calibration_days": 28,
+    "target_coverage": 0.8,
+    "q_kwh": 108.8296,
+    "n_proper": 7317,
+    "n_calib": 672,
+    "calib_coverage_after": 0.803571,
+    "raw_validation_coverage": 0.589583
+  }
 }

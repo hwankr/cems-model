@@ -110,6 +110,43 @@ def test_explain_band_schema(tmp_path):
     assert set(explanations["timestamp"]).issubset(overuse_ts)
 
 
+def test_calibration_widens_band_and_sets_calib_coverage():
+    """CQR calibration must widen the raw band and report ~80% calib coverage."""
+    data_path = Path("school_power_usage_split/ml_ready/power_usage_1hour_ml.csv")
+    frame = som.build_modeling_frame(data_path)
+    train, validation = som.split_train_validation(
+        frame, "2026-06-01 00:00:00", "2026-06-20 23:00:00"
+    )
+    result = som.train_quantile_band(train, validation, calibrate=True, calibration_days=28, target_coverage=0.8)
+
+    # Calibration block is present and applied
+    assert result.calibration.get("applied") is True
+    # Q must widen the band (raw coverage < 0.8, so Q > 0)
+    assert result.calibration["q_kwh"] > 0, "Expected Q>0 since LightGBM raw bands under-cover"
+    # calib_coverage_after should be close to 0.8 (±0.06 tolerance)
+    calib_cov = result.calibration["calib_coverage_after"]
+    assert 0.76 <= calib_cov <= 0.86, f"calib_coverage_after={calib_cov} not in [0.76, 0.86]"
+    # calibrated validation coverage should be strictly greater than raw coverage
+    flagged = som.flag_overuse(result.predictions)
+    metrics = som.compute_band_metrics(flagged)
+    calibrated_cov = metrics["coverage"]
+    raw_cov = metrics["coverage_raw"]
+    assert calibrated_cov > raw_cov, (
+        f"Calibrated coverage {calibrated_cov:.3f} should exceed raw {raw_cov:.3f}"
+    )
+
+
+def test_compute_band_metrics_coverage_raw_nan_without_raw_columns():
+    """When p10_raw_kwh / p90_raw_kwh are absent, coverage_raw must be NaN."""
+    flagged = som.flag_overuse(_toy_predictions())
+    metrics = som.compute_band_metrics(flagged)
+    # toy predictions have no p10_raw_kwh column → coverage_raw must be NaN
+    assert "coverage_raw" in metrics, "coverage_raw key must always be present"
+    assert np.isnan(metrics["coverage_raw"]), f"Expected NaN, got {metrics['coverage_raw']}"
+    # coverage (calibrated) still works: 1/3 in band
+    assert metrics["coverage"] == pytest.approx(1 / 3)
+
+
 def test_run_school_overuse_model_writes_artifacts(tmp_path):
     out = tmp_path / "outputs"
     web = tmp_path / "school_overuse_web"

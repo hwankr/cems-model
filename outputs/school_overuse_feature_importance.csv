@@ -1,32 +1,32 @@
 ﻿feature,feature_label_ko,mean_abs_shap
-school_lag_168h_kwh,1주 전 같은시간 사용량,445.3242889140357
-school_lag_24h_kwh,24시간 전 사용량,298.33268232855556
-day_of_week,요일,123.82881020207941
-school_same_hour_7d_mean_kwh,최근 7일 같은시간 평균,73.05635474198826
-academic_days_to_final,기말까지 일수,62.629652102166226
-dow_sin,요일 주기(sin),52.930592758605705
-hour_cos,시간 주기(cos),49.295260153668856
-weather_temp_min_c,최저기온,27.298421405516315
-weather_temp_max_c,최고기온,25.840032829216305
-weather_temp_mean_c,평균기온,25.63021086593795
-weather_wind_mean_mps,평균풍속,11.401535358077513
-hour,시간,10.947101993620532
-hour_sin,시간 주기(sin),9.811618321173974
-academic_days_since_semester_start,학기 경과일,8.990843593533949
-is_weekend,주말 여부,8.642050499650564
-dow_cos,요일 주기(cos),5.433625549022408
-weather_humidity_mean_pct,평균습도,5.236601819969524
-day,일,4.890332224930862
-weather_rainfall_mm,강수량,4.621041797725539
-weather_hdd_18,난방도일(HDD),1.8463640967564505
-weather_cdd_18,냉방도일(CDD),1.809374860639636
-academic_is_course_eval,강의평가기간,1.4790661478384708
-month,월,1.3724966300373915
-academic_semester_week,학기 주차,0.6193302416115929
-academic_is_instruction_period,수업기간,0.5402696351258919
-academic_is_midterm,중간고사,0.30037962909839233
-academic_is_makeup_class_day,보강일,0.239330954895023
-academic_is_education_practice,교육실습,0.20014579554388334
-weather_is_rainy,강우 여부,0.04147172740946417
-academic_is_vacation,방학,0.0
-academic_is_final,기말고사,0.0
+school_lag_168h_kwh,1주 전 같은시간 사용량,373.45133333298656
+school_lag_24h_kwh,24시간 전 사용량,332.7951751881817
+day_of_week,요일,133.83566216334657
+school_same_hour_7d_mean_kwh,최근 7일 같은시간 평균,97.56038184303542
+dow_sin,요일 주기(sin),59.30035609542352
+hour_cos,시간 주기(cos),53.431614042354276
+weather_temp_mean_c,평균기온,49.79479835735164
+weather_temp_min_c,최저기온,37.87662612303594
+weather_temp_max_c,최고기온,35.53308606672542
+academic_days_to_final,기말까지 일수,34.568008146273755
+hour,시간,12.462202599319438
+weather_wind_mean_mps,평균풍속,9.656617211713147
+hour_sin,시간 주기(sin),9.47764018439944
+weather_humidity_mean_pct,평균습도,9.117445843729335
+weather_rainfall_mm,강수량,7.971491751207827
+academic_days_since_semester_start,학기 경과일,7.502823881756303
+day,일,5.8431265685944975
+month,월,3.576600543540414
+is_weekend,주말 여부,2.346706713840101
+dow_cos,요일 주기(cos),1.5357133910714618
+weather_hdd_18,난방도일(HDD),1.2516336666635597
+academic_is_final,기말고사,1.1156598494923116
+academic_semester_week,학기 주차,0.45641579598010423
+academic_is_course_eval,강의평가기간,0.42683346988515336
+weather_cdd_18,냉방도일(CDD),0.37378157907395865
+academic_is_midterm,중간고사,0.23925566159896966
+academic_is_instruction_period,수업기간,0.20201607719361722
+academic_is_vacation,방학,0.1477417485157789
+academic_is_makeup_class_day,보강일,0.14451080490525026
+weather_is_rainy,강우 여부,0.0073393311576335956
+academic_is_education_practice,교육실습,0.0

@@ -56,6 +56,7 @@ class QuantileBandResult:
     feature_columns: list[str]
     used_fallback: bool = False
     shap_available: bool = False
+    calibration: dict = field(default_factory=dict)
 
 
 class QuantileFallbackRegressor:
@@ -117,36 +118,148 @@ def build_modeling_frame(
     return featured
 
 
-def train_quantile_band(train, validation, quantiles=QUANTILES,
-                        model_factory: Callable[[float], object] = default_quantile_model_factory):
+def train_quantile_band(
+    train, validation, quantiles=QUANTILES,
+    model_factory: Callable[[float], object] = default_quantile_model_factory,
+    calibrate: bool = True,
+    calibration_days: int = 28,
+    target_coverage: float = 0.8,
+):
     feature_columns = [c for c in DAY_AHEAD_FEATURES if c in train.columns and c in validation.columns]
     clean_train = train.dropna(subset=[TARGET_COLUMN]).copy()
     if clean_train.empty or validation.empty:
         raise RuntimeError("Insufficient rows to train quantile band.")
-    y_train = pd.to_numeric(clean_train[TARGET_COLUMN], errors="coerce")
-    x_train = build_feature_frame(clean_train, feature_columns=feature_columns)
-    x_validation = build_feature_frame(validation, list(x_train.columns), reference=clean_train, feature_columns=feature_columns)
+
+    # ------------------------------------------------------------------
+    # CQR split: only when calibrate=True and we have enough history
+    # ------------------------------------------------------------------
+    calibration_info: dict = {"applied": False}
+    do_calibrate = False
+
+    if calibrate:
+        # Determine timestamps from the index or a timestamp column
+        if "timestamp" in clean_train.columns:
+            ts_series = pd.to_datetime(clean_train["timestamp"])
+        else:
+            ts_series = pd.to_datetime(clean_train.index)
+        ts_max = ts_series.max()
+        calib_cutoff = ts_max - pd.Timedelta(days=calibration_days)
+        calib_mask = ts_series > calib_cutoff
+        proper_mask = ~calib_mask
+        if proper_mask.sum() > 0 and calib_mask.sum() > 0:
+            do_calibrate = True
+            proper_train = clean_train.loc[proper_mask.values]
+            calib_train = clean_train.loc[calib_mask.values]
+
+    if do_calibrate:
+        # Fit models on proper subset only
+        y_proper = pd.to_numeric(proper_train[TARGET_COLUMN], errors="coerce")
+        x_proper = build_feature_frame(proper_train, feature_columns=feature_columns)
+        x_calib = build_feature_frame(calib_train, list(x_proper.columns), reference=proper_train, feature_columns=feature_columns)
+        x_validation = build_feature_frame(validation, list(x_proper.columns), reference=proper_train, feature_columns=feature_columns)
+        y_train = y_proper  # used for fallback check below
+        x_train = x_proper
+    else:
+        y_train = pd.to_numeric(clean_train[TARGET_COLUMN], errors="coerce")
+        x_train = build_feature_frame(clean_train, feature_columns=feature_columns)
+        x_validation = build_feature_frame(validation, list(x_train.columns), reference=clean_train, feature_columns=feature_columns)
 
     preds = validation.copy()
     quantile_cols = {0.1: "p10_kwh", 0.5: "p50_kwh", 0.9: "p90_kwh"}
     p50_model = None
     used_fallback = False
+
+    # Store raw predictions on calib and validation when doing CQR
+    if do_calibrate:
+        calib_preds: dict = {}
+        val_raw: dict = {}
+
     for q in quantiles:
         model = model_factory(q)
         if isinstance(model, QuantileFallbackRegressor):
             used_fallback = True
         model.fit(x_train, y_train)
-        preds[quantile_cols[q]] = np.maximum(model.predict(x_validation), 0)
+        val_pred = np.maximum(model.predict(x_validation), 0)
+        preds[quantile_cols[q]] = val_pred
         if q == 0.5:
             p50_model = model
-    # crossing fix: sort the three quantiles row-wise
-    band = preds[["p10_kwh", "p50_kwh", "p90_kwh"]].to_numpy()
-    band.sort(axis=1)
-    preds[["p10_kwh", "p50_kwh", "p90_kwh"]] = band
+        if do_calibrate:
+            calib_preds[q] = model.predict(x_calib)  # raw, may be negative
+            val_raw[q] = val_pred.copy()
+
+    if do_calibrate:
+        # Raw band on calib (before CQR adjustment)
+        p10_raw_calib = calib_preds[0.1]
+        p90_raw_calib = calib_preds[0.9]
+        y_calib = pd.to_numeric(calib_train[TARGET_COLUMN], errors="coerce").to_numpy()
+
+        # Conformity scores: positive = outside band
+        s = np.maximum(p10_raw_calib - y_calib, y_calib - p90_raw_calib)
+
+        n = len(s)
+        level = min(np.ceil((n + 1) * target_coverage) / n, 1.0)
+        Q = float(np.quantile(s, level, method="higher"))
+
+        # Raw validation band columns (clip >=0)
+        preds["p10_raw_kwh"] = np.maximum(val_raw[0.1], 0)
+        preds["p90_raw_kwh"] = np.maximum(val_raw[0.9], 0)
+
+        # Calibrated validation band
+        p10_cal = np.maximum(val_raw[0.1] - Q, 0)
+        p90_cal = val_raw[0.9] + Q
+        p50_val = np.maximum(preds["p50_kwh"].to_numpy(), 0)
+
+        # Row-wise sort [p10, p50, p90] to enforce monotonicity, clip >=0
+        band = np.stack([p10_cal, p50_val, p90_cal], axis=1)
+        band.sort(axis=1)
+        band = np.maximum(band, 0)
+        preds["p10_kwh"] = band[:, 0]
+        preds["p50_kwh"] = band[:, 1]
+        preds["p90_kwh"] = band[:, 2]
+
+        # Calib coverage AFTER applying Q
+        p10_calib_cal = p10_raw_calib - Q
+        p90_calib_cal = p90_raw_calib + Q
+        calib_inside = ((y_calib >= p10_calib_cal) & (y_calib <= p90_calib_cal)).mean()
+
+        # Raw validation coverage (before Q adjustment)
+        val_actual = pd.to_numeric(validation[TARGET_COLUMN], errors="coerce").to_numpy()
+        raw_inside_mask = ~np.isnan(val_actual)
+        if raw_inside_mask.sum() > 0:
+            raw_val_cov = float(
+                ((val_actual[raw_inside_mask] >= preds["p10_raw_kwh"].to_numpy()[raw_inside_mask]) &
+                 (val_actual[raw_inside_mask] <= preds["p90_raw_kwh"].to_numpy()[raw_inside_mask])).mean()
+            )
+        else:
+            raw_val_cov = float("nan")
+
+        calibration_info = {
+            "applied": True,
+            "calibration_days": calibration_days,
+            "target_coverage": target_coverage,
+            "q_kwh": round(Q, 4),
+            "n_proper": int(len(proper_train)),
+            "n_calib": int(n),
+            "calib_coverage_after": round(float(calib_inside), 6),
+            "raw_validation_coverage": round(raw_val_cov, 6),
+        }
+    else:
+        # No calibration: crossing fix on the raw band
+        band = preds[["p10_kwh", "p50_kwh", "p90_kwh"]].to_numpy()
+        band.sort(axis=1)
+        preds[["p10_kwh", "p50_kwh", "p90_kwh"]] = band
+
+    if do_calibrate:
+        # The band columns are already set above; just reset index
+        pass
+    else:
+        pass  # band already sorted above
+
     return QuantileBandResult(
         predictions=preds.reset_index(drop=True), p50_model=p50_model,
         x_validation=x_validation.reset_index(drop=True),
         feature_columns=list(x_train.columns), used_fallback=used_fallback,
+        calibration=calibration_info,
     )
 
 
@@ -176,8 +289,18 @@ def compute_band_metrics(predictions: pd.DataFrame) -> dict:
     p50 = df["p50_kwh"]
     abs_err = (p50 - actual).abs()
     actual_sum = float(actual.sum())
+
+    # coverage_raw: fraction inside [p10_raw_kwh, p90_raw_kwh] if those columns exist
+    if "p10_raw_kwh" in df.columns and "p90_raw_kwh" in df.columns:
+        coverage_raw = float(
+            ((actual >= df["p10_raw_kwh"]) & (actual <= df["p90_raw_kwh"])).mean()
+        )
+    else:
+        coverage_raw = float("nan")
+
     return {
         "coverage": float(df["in_normal_band"].mean()) if "in_normal_band" in df else float("nan"),
+        "coverage_raw": coverage_raw,
         "pinball_p10": _pinball(actual, df["p10_kwh"], 0.1),
         "pinball_p50": _pinball(actual, df["p50_kwh"], 0.5),
         "pinball_p90": _pinball(actual, df["p90_kwh"], 0.9),
@@ -404,6 +527,7 @@ def _build_monitor_bundle(
     validation_end: str,
     shap_available: bool,
     used_fallback: bool,
+    calibration: dict | None = None,
 ) -> dict:
     """Build the monitor.json schema dict."""
 
@@ -495,25 +619,32 @@ def _build_monitor_bundle(
             }
         )
 
-    # metrics – round all float values to 2 decimals
-    metrics_rounded = {
-        k: (round(v, 4) if isinstance(v, float) else v) for k, v in metrics.items()
-    }
+    # metrics – round all float values to 4 decimals (NaN stays NaN)
+    metrics_rounded = {}
+    for k, v in metrics.items():
+        if isinstance(v, float) and not np.isnan(v):
+            metrics_rounded[k] = round(v, 4)
+        else:
+            metrics_rounded[k] = v
     metrics_rounded["coverage_target"] = 0.8
 
+    meta_block = {
+        "validation_start": validation_start,
+        "validation_end": validation_end,
+        "validation_rows": validation_rows,
+        "validation_days": validation_days,
+        "quantiles": list(QUANTILES),
+        "base_model": "lightgbm_quantile_day_ahead_weather_academic",
+        "feature_contract": "day-ahead",
+        "shap_available": shap_available,
+        "used_fallback": used_fallback,
+        "generated_note": "Generated by modeling/school_overuse_model.py",
+    }
+    if calibration:
+        meta_block["calibration"] = calibration
+
     return {
-        "meta": {
-            "validation_start": validation_start,
-            "validation_end": validation_end,
-            "validation_rows": validation_rows,
-            "validation_days": validation_days,
-            "quantiles": list(QUANTILES),
-            "base_model": "lightgbm_quantile_day_ahead_weather_academic",
-            "feature_contract": "day-ahead",
-            "shap_available": shap_available,
-            "used_fallback": used_fallback,
-            "generated_note": "Generated by modeling/school_overuse_model.py",
-        },
+        "meta": meta_block,
         "metrics": metrics_rounded,
         "baselines": baselines,
         "series": series_rows,
@@ -591,9 +722,11 @@ def run_school_overuse_model(
     global_importance.to_csv(output_dir / "school_overuse_feature_importance.csv", index=False, encoding="utf-8-sig")
     daily_summary.to_csv(output_dir / "school_overuse_daily_summary.csv", index=False, encoding="utf-8-sig")
 
-    # 9. Save metrics JSON
+    # 9. Save metrics JSON (include coverage_raw and coverage_target)
+    metrics_with_target = dict(metrics)
+    metrics_with_target["coverage_target"] = 0.8
     with open(output_dir / "school_overuse_metrics.json", "w", encoding="utf-8") as f:
-        _json.dump(metrics, f, ensure_ascii=False, indent=2)
+        _json.dump(metrics_with_target, f, ensure_ascii=False, indent=2)
 
     # 10. Save run summary JSON
     run_summary = {
@@ -602,11 +735,15 @@ def run_school_overuse_model(
         "validation_rows": metrics["n_rows"],
         "validation_days": int(flagged["report_date"].nunique()) if "report_date" in flagged.columns else 0,
         "coverage": round(metrics["coverage"], 6),
+        "coverage_raw": round(metrics["coverage_raw"], 6) if not (isinstance(metrics["coverage_raw"], float) and np.isnan(metrics["coverage_raw"])) else None,
+        "coverage_target": 0.8,
         "overuse_hours": metrics["overuse_hours"],
+        "underuse_hours": metrics["underuse_hours"],
         "overuse_total_exceedance_kwh": round(metrics["overuse_total_exceedance_kwh"], 4),
         "p50_wape": round(metrics["p50_wape"], 6),
         "used_fallback": band_result.used_fallback,
         "shap_available": shap_available,
+        "calibration": band_result.calibration if band_result.calibration else {"applied": False},
     }
     with open(output_dir / "school_overuse_run_summary.json", "w", encoding="utf-8") as f:
         _json.dump(run_summary, f, ensure_ascii=False, indent=2)
@@ -621,6 +758,7 @@ def run_school_overuse_model(
         validation_end=validation_end,
         shap_available=shap_available,
         used_fallback=band_result.used_fallback,
+        calibration=band_result.calibration if band_result.calibration else None,
     )
     web_data_dir = web_dir / "data"
     web_data_dir.mkdir(parents=True, exist_ok=True)
