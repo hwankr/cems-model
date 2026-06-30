@@ -1,0 +1,14 @@
+{
+  "baseline_sum_kwh": 1506147.98,
+  "actual_sum_kwh": 1506881.52,
+  "avoided_sum_kwh": -733.54,
+  "avoided_pct": -0.000487,
+  "avoided_per_sqm_kwh": -0.0016,
+  "confirmed_saving_hours": 100,
+  "overuse_hours": 39,
+  "n_rows": 480,
+  "heldout_wape": 0.108478,
+  "heldout_coverage": 0.803571,
+  "area_sqm": 447761.85,
+  "avoided_pct_display": -0.05
+}

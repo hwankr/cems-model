@@ -41,3 +41,37 @@ def test_train_frozen_band_shapes_and_accuracy():
 
 def test_load_total_area_positive():
     assert ssb.load_total_area_sqm() > 100000  # campus is hundreds of thousands of m^2
+
+
+# ---------------------------------------------------------------------------
+# Task 2 tests
+# ---------------------------------------------------------------------------
+
+def test_compute_savings_math():
+    df = pd.DataFrame({"usage_kwh":[100.0,200.0], "p10_kwh":[90.0,150.0],
+                       "p50_kwh":[120.0,180.0], "p90_kwh":[140.0,210.0]})
+    out = ssb.compute_savings(df, total_area_sqm=1000.0)
+    # row0: avoided = p50 - actual = 120 - 100 = 20 (saved)
+    assert out.loc[0,"avoided_kwh"] == pytest.approx(20.0)
+    # row0: actual 100 < p10 90? No (100 > 90) -> NOT confirmed saving
+    assert out.loc[0,"is_confirmed_saving"] == False
+    # row1: avoided = 180 - 200 = -20 (over-used)
+    assert out.loc[1,"avoided_kwh"] == pytest.approx(-20.0)
+    # row0: avoided_kwh_per_sqm = 20 / 1000 = 0.02
+    assert out.loc[0,"avoided_kwh_per_sqm"] == pytest.approx(20.0/1000.0)
+    # row1: actual 200 > p90 210? No -> not overuse
+    assert out.loc[1,"is_overuse"] == False
+
+
+def test_scorecard_and_leaderboard_and_bundle(tmp_path):
+    res = ssb.run_savings_demo(output_dir=tmp_path/"outputs", web_dir=tmp_path/"web")
+    import json
+    bundle = json.loads((tmp_path/"web"/"data"/"savings.json").read_text(encoding="utf-8"))
+    for k in ["meta","accuracy","scorecard","series","daily","leaderboard","glossary"]:
+        assert k in bundle
+    assert bundle["meta"]["reporting_rows"] == len(bundle["series"]) == 480
+    assert len(bundle["daily"]) == 20
+    assert len(bundle["leaderboard"]) >= 3
+    assert all("rank" in r for r in bundle["leaderboard"])
+    assert bundle["scorecard"]["area_sqm"] > 100000
+    assert res.reporting_rows == 480

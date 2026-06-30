@@ -1,0 +1,32 @@
+{
+  "run_date": "2026-06-30 23:15:03",
+  "reporting_rows": 480,
+  "used_fallback": false,
+  "accuracy": {
+    "wape": 0.108478,
+    "mae_kwh": 289.6445,
+    "rmse_kwh": 453.4856,
+    "coverage": 0.803571,
+    "naive_wape": 0.262494
+  },
+  "calibration": {
+    "applied": true,
+    "q_kwh": 230.6299,
+    "n_proper": 7317,
+    "n_calib": 672
+  },
+  "scorecard": {
+    "baseline_sum_kwh": 1506147.98,
+    "actual_sum_kwh": 1506881.52,
+    "avoided_sum_kwh": -733.54,
+    "avoided_pct": -0.000487,
+    "avoided_per_sqm_kwh": -0.0016,
+    "confirmed_saving_hours": 100,
+    "overuse_hours": 39,
+    "n_rows": 480,
+    "heldout_wape": 0.108478,
+    "heldout_coverage": 0.803571,
+    "area_sqm": 447761.85,
+    "avoided_pct_display": -0.05
+  }
+}
