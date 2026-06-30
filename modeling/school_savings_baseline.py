@@ -13,6 +13,7 @@ Key design:
 """
 from __future__ import annotations
 
+import datetime
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -484,7 +485,6 @@ def build_leaderboard(
                                       "avoided_kwh", "avoided_pct", "avoided_per_sqm_kwh", "rank"])
 
     start_date = all_dates[0]
-    import datetime
     rounds_list = []
     round_num = 1
 
@@ -725,17 +725,22 @@ def run_savings_demo(
     with open(bundle_path, "w", encoding="utf-8") as f:
         json.dump(bundle, f, ensure_ascii=False, indent=2)
 
-    avoided_pct_val = scorecard.get("avoided_pct") or float("nan")
-    avoided_sum = scorecard.get("avoided_sum_kwh") or float("nan")
-    avoided_per_sqm = scorecard.get("avoided_per_sqm_kwh") or float("nan")
+    _v = scorecard.get("avoided_pct")
+    avoided_pct_val = _v if _v is not None else float("nan")
+    _s = scorecard.get("avoided_sum_kwh")
+    avoided_sum = _s if _s is not None else float("nan")
+    _p = scorecard.get("avoided_per_sqm_kwh")
+    avoided_per_sqm = _p if _p is not None else float("nan")
+    _wape = accuracy.get("wape")
+    _cov = accuracy.get("coverage")
 
     return SavingsRunResult(
         output_dir=output_dir,
         reporting_rows=len(savings),
-        avoided_pct=float(avoided_pct_val) if avoided_pct_val is not None else float("nan"),
-        avoided_sum_kwh=float(avoided_sum) if avoided_sum is not None else float("nan"),
-        avoided_per_sqm_kwh=float(avoided_per_sqm) if avoided_per_sqm is not None else float("nan"),
-        heldout_wape=float(accuracy.get("wape") or float("nan")),
-        heldout_coverage=float(accuracy.get("coverage") or float("nan")),
+        avoided_pct=float(avoided_pct_val),
+        avoided_sum_kwh=float(avoided_sum),
+        avoided_per_sqm_kwh=float(avoided_per_sqm),
+        heldout_wape=float(_wape) if _wape is not None else float("nan"),
+        heldout_coverage=float(_cov) if _cov is not None else float("nan"),
         used_fallback=band_result.used_fallback,
     )

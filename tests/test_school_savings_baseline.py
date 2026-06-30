@@ -1,4 +1,5 @@
 from pathlib import Path
+import math
 import numpy as np, pandas as pd, pytest
 from modeling import school_savings_baseline as ssb
 
@@ -75,3 +76,47 @@ def test_scorecard_and_leaderboard_and_bundle(tmp_path):
     assert all("rank" in r for r in bundle["leaderboard"])
     assert bundle["scorecard"]["area_sqm"] > 100000
     assert res.reporting_rows == 480
+
+    # --- series key set is exactly the expected schema ---
+    EXPECTED_SERIES_KEYS = {
+        "timestamp", "report_date", "hour",
+        "actual", "p10", "p50", "p90",
+        "avoided_kwh", "avoided_pct",
+        "is_confirmed_saving", "is_overuse",
+    }
+    assert set(bundle["series"][0].keys()) == EXPECTED_SERIES_KEYS
+
+    # --- every series row's numeric fields are finite ---
+    for row in bundle["series"]:
+        for field in ("actual", "p10", "p50", "p90", "avoided_kwh"):
+            assert row[field] is not None, f"Expected finite number for {field}, got None"
+            assert math.isfinite(row[field]), f"Expected finite number for {field}, got {row[field]}"
+
+    # --- accuracy.baselines contains frozen P50 and naive_same_dow_hour_profile ---
+    baselines = bundle["accuracy"]["baselines"]
+    baseline_models = {b["model"] for b in baselines}
+    assert "frozen P50" in baseline_models, f"Missing 'frozen P50' in baselines: {baseline_models}"
+    assert "naive_same_dow_hour_profile" in baseline_models, (
+        f"Missing 'naive_same_dow_hour_profile' in baselines: {baseline_models}"
+    )
+
+    # --- naive wape is strictly greater than model wape (model beats naive) ---
+    model_wape = bundle["accuracy"]["wape"]
+    naive_entry = next(b for b in baselines if b["model"] == "naive_same_dow_hour_profile")
+    naive_wape = naive_entry["wape"]
+    assert naive_wape is not None, "naive_wape should not be None"
+    assert math.isfinite(naive_wape), f"naive_wape should be finite, got {naive_wape}"
+    assert naive_wape > model_wape, (
+        f"Expected naive_wape ({naive_wape}) > model_wape ({model_wape})"
+    )
+
+    # --- leaderboard ranks are 1..N and ordered so higher avoided_pct gets lower rank ---
+    lb = bundle["leaderboard"]
+    ranks = [r["rank"] for r in lb]
+    assert ranks == list(range(1, len(lb) + 1)), f"Ranks should be 1..N, got {ranks}"
+    # Verify ordering: rows with non-None avoided_pct should be descending
+    pcts_with_rank = [(r["rank"], r["avoided_pct"]) for r in lb if r["avoided_pct"] is not None]
+    pcts_ordered = [p for _, p in sorted(pcts_with_rank, key=lambda x: x[0])]
+    assert pcts_ordered == sorted(pcts_ordered, reverse=True), (
+        f"Leaderboard rows should be ordered by avoided_pct desc: {pcts_ordered}"
+    )
