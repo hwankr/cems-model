@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -55,7 +56,6 @@ class QuantileBandResult:
     x_validation: pd.DataFrame
     feature_columns: list[str]
     used_fallback: bool = False
-    shap_available: bool = False
     calibration: dict = field(default_factory=dict)
 
 
@@ -249,12 +249,6 @@ def train_quantile_band(
         band.sort(axis=1)
         preds[["p10_kwh", "p50_kwh", "p90_kwh"]] = band
 
-    if do_calibrate:
-        # The band columns are already set above; just reset index
-        pass
-    else:
-        pass  # band already sorted above
-
     return QuantileBandResult(
         predictions=preds.reset_index(drop=True), p50_model=p50_model,
         x_validation=x_validation.reset_index(drop=True),
@@ -374,8 +368,13 @@ def explain_band(
     Falls back to feature_importances_ when SHAP is unavailable or model is
     QuantileFallbackRegressor.
     """
+    # Reset indices so that positional access into shap_values (numpy array)
+    # and x_validation always aligns with row labels — robust to non-default index.
+    predictions = predictions.reset_index(drop=True)
+    x_validation = x_validation.reset_index(drop=True)
+
     overuse_mask = predictions["is_overuse"].fillna(False).astype(bool)
-    overuse_idx = predictions.index[overuse_mask].tolist()
+    overuse_idx = predictions.index[overuse_mask].tolist()  # now 0-based integers
 
     shap_available = False
     shap_values = None
@@ -395,7 +394,11 @@ def explain_band(
                 shap_raw = shap_raw[0]
             shap_values = shap_raw  # shape (n_rows, n_features)
             shap_available = True
-        except Exception:
+        except Exception as exc:
+            warnings.warn(
+                f"SHAP unavailable, falling back to feature_importances_: {exc}",
+                stacklevel=2,
+            )
             shap_values = None
 
     # Build global importance
@@ -426,20 +429,22 @@ def explain_band(
     # Build per-overuse-row explanations in long format
     rows = []
     for idx in overuse_idx:
+        # idx is a 0-based positional integer after reset_index above
         row_pred = predictions.loc[idx]
         ts = row_pred.get("timestamp", None)
         rd = row_pred.get("report_date", None)
         hr = row_pred.get("hour", None)
 
         if shap_values is not None:
-            sv = shap_values[idx]  # shape (n_features,)
+            sv = shap_values[idx]  # shape (n_features,) — positional, safe now
             # top_k by |shap|
             abs_sv = np.abs(sv)
             top_indices = np.argsort(abs_sv)[::-1][:top_k]
             for rank, fi_idx in enumerate(top_indices, start=1):
                 feat = feature_columns[fi_idx]
                 sv_val = float(sv[fi_idx])
-                fv = float(x_validation[feature_columns[fi_idx]].iloc[idx]) if fi_idx < len(feature_columns) else float("nan")
+                # Use .loc with the label (== idx after reset) for unambiguous access
+                fv = float(x_validation.loc[idx, feature_columns[fi_idx]]) if fi_idx < len(feature_columns) else float("nan")
                 rows.append(
                     {
                         "timestamp": ts,
@@ -458,7 +463,7 @@ def explain_band(
             top_feats = global_importance_df["feature"].tolist()[:top_k]
             for rank, feat in enumerate(top_feats, start=1):
                 try:
-                    fv = float(x_validation[feat].iloc[idx])
+                    fv = float(x_validation.loc[idx, feat])
                 except Exception:
                     fv = float("nan")
                 rows.append(

@@ -163,3 +163,18 @@ def test_run_school_overuse_model_writes_artifacts(tmp_path):
     assert bundle["meta"]["validation_rows"] == len(bundle["series"])
     assert 0.0 <= bundle["metrics"]["coverage"] <= 1.0
     assert result.validation_rows == bundle["meta"]["validation_rows"]
+
+    # Verify SHAP path is genuine: shap_available must be True and overuse items
+    # must carry real explanations (not empty fallback stubs).
+    assert bundle["meta"]["shap_available"] is True, (
+        "Expected shap_available=True in monitor.json meta"
+    )
+    assert len(bundle["overuse"]) > 0, "Expected at least one over-use hour in bundle"
+    first_overuse = bundle["overuse"][0]
+    assert "explanations" in first_overuse, "Over-use entry must have 'explanations' key"
+    assert len(first_overuse["explanations"]) > 0, "Over-use explanations list must be non-empty"
+    required_keys = {"feature", "label_ko", "shap_kwh", "feature_value", "direction"}
+    first_expl = first_overuse["explanations"][0]
+    assert required_keys.issubset(first_expl.keys()), (
+        f"First explanation missing keys: {required_keys - first_expl.keys()}"
+    )
