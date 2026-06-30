@@ -1,0 +1,152 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>학교 에너지 절감 대시보드</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="app-shell">
+
+  <!-- 상단 네비게이션 -->
+  <nav class="top-nav" role="navigation" aria-label="주요 탭">
+    <div class="top-nav__inner">
+      <button class="nav-tab active" data-tab="overview">주제(개요)</button>
+      <button class="nav-tab" data-tab="accuracy">정확도 증명</button>
+      <button class="nav-tab" data-tab="chart">베이스라인 대비 절감</button>
+      <button class="nav-tab" data-tab="scorecard">스코어카드</button>
+      <button class="nav-tab" data-tab="leaderboard">리더보드</button>
+      <button class="nav-tab" data-tab="glossary">공정성·용어</button>
+    </div>
+  </nav>
+
+  <!-- 폴백 배너 (used_fallback=true 일 때만 표시) -->
+  <div class="fallback-banner" role="alert" aria-live="polite"></div>
+
+  <main class="main-content">
+
+    <!-- ── 1. 주제(개요) ───────────────────────────────────── -->
+    <section id="tab-overview" class="tab-panel active" aria-label="주제 개요">
+
+      <div class="hero">
+        <div class="hero__eyebrow">CEMS 에너지 절감 대회 · 베이스라인 검증</div>
+        <h1 class="hero__title">
+          학교 에너지 <em>절감</em>을<br>
+          데이터로 공정하게 측정합니다
+        </h1>
+        <p class="hero__body">
+          기존 검침 데이터·날씨·학사일정만으로 학교별 시간당 전력 베이스라인을 만들고,
+          실제 사용량과 비교해 절감량을 객관적으로 산정합니다.
+          동결(frozen) 베이스라인으로 baseline chasing 없이 공정한 경쟁을 보장합니다.
+        </p>
+      </div>
+
+      <!-- KPI 스트립 -->
+      <div id="overview-kpi" class="kpi-strip" aria-label="주요 지표">
+        <div class="loading-state">데이터 로딩 중...</div>
+      </div>
+
+      <!-- 동결 베이스라인 설명 -->
+      <div id="overview-note" class="info-box" role="note">
+        데이터 로딩 중...
+      </div>
+
+    </section>
+
+    <!-- ── 2. 정확도 증명 ──────────────────────────────────── -->
+    <section id="tab-accuracy" class="tab-panel" aria-label="정확도 증명">
+      <h2 class="section-title">정확도 증명</h2>
+      <p class="section-sub">이미 있는 데이터만으로 베이스라인이 이만큼 정확합니다.</p>
+
+      <div id="accuracy-content">
+        <div class="loading-state">데이터 로딩 중...</div>
+      </div>
+    </section>
+
+    <!-- ── 3. 베이스라인 대비 절감 차트 ───────────────────── -->
+    <section id="tab-chart" class="tab-panel" aria-label="베이스라인 대비 절감 차트">
+      <h2 class="section-title">베이스라인 대비 절감</h2>
+      <p class="section-sub">날짜를 선택하면 시간별 P10~P90 밴드, P50 베이스라인, 실제 소비량을 확인할 수 있습니다.</p>
+
+      <div class="chart-controls">
+        <label for="chart-date-select">날짜 선택:</label>
+        <select id="chart-date-select" class="chart-select" aria-label="날짜 선택"></select>
+      </div>
+
+      <div id="chart-day-kpi" class="chart-day-kpi" aria-label="일별 절감 지표"></div>
+
+      <div class="chart-wrapper">
+        <svg id="chart-svg" viewBox="0 0 800 320" aria-label="시간별 에너지 소비 차트" role="img"></svg>
+      </div>
+
+      <div class="chart-legend" aria-label="차트 범례">
+        <span class="legend-item">
+          <span class="legend-swatch" style="background:var(--color-actual);height:3px;display:inline-block;width:20px;border-radius:2px;"></span>
+          실제 소비량
+        </span>
+        <span class="legend-item">
+          <span class="legend-swatch" style="background:var(--color-p50);height:3px;display:inline-block;width:20px;border-radius:2px;border-bottom:2px dashed;"></span>
+          P50 베이스라인
+        </span>
+        <span class="legend-item">
+          <span class="legend-swatch legend-swatch--band" style="background:rgba(96,165,250,.25);height:12px;display:inline-block;width:20px;border-radius:3px;"></span>
+          P10~P90 구간
+        </span>
+        <span class="legend-item">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--color-saving);"></span>
+          확실한 절감 (실제 &lt; P10)
+        </span>
+        <span class="legend-item">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--color-overuse);"></span>
+          초과 (실제 &gt; P90)
+        </span>
+      </div>
+
+      <div id="chart-content"></div>
+    </section>
+
+    <!-- ── 4. 스코어카드 ───────────────────────────────────── -->
+    <section id="tab-scorecard" class="tab-panel" aria-label="스코어카드">
+      <h2 class="section-title">스코어카드</h2>
+      <p class="section-sub">검증 기간 전체의 절감 실적입니다. 순 절감량이 음수이면 초과(빨강), 양수이면 절감(초록)입니다.</p>
+
+      <div id="scorecard-content">
+        <div class="loading-state">데이터 로딩 중...</div>
+      </div>
+    </section>
+
+    <!-- ── 5. 리더보드 ─────────────────────────────────────── -->
+    <section id="tab-leaderboard" class="tab-panel" aria-label="리더보드">
+      <h2 class="section-title">리더보드</h2>
+      <p class="section-sub">
+        주차별 절감률(%) · 면적당(kWh/㎡) 비교.
+        여기선 같은 학교의 주차를 참가자로 시연 — 학교 A·B·C로 바꿔도 동일하게 동작합니다.
+      </p>
+
+      <div id="leaderboard-content">
+        <div class="loading-state">데이터 로딩 중...</div>
+      </div>
+    </section>
+
+    <!-- ── 6. 공정성·용어 ──────────────────────────────────── -->
+    <section id="tab-glossary" class="tab-panel" aria-label="공정성 및 용어 설명">
+      <h2 class="section-title">공정성·용어</h2>
+      <p class="section-sub">베이스라인 대비 %와 면적당(kWh/㎡)으로 채점하면 규모가 달라도 공정합니다.</p>
+
+      <div id="glossary-content">
+        <div class="loading-state">데이터 로딩 중...</div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 툴팁 -->
+  <div id="chart-tooltip" class="chart-tooltip" role="tooltip" aria-live="off"></div>
+
+  <footer style="text-align:center;padding:1.5rem;color:#8892a4;font-size:.8rem;background:#0f1117;margin-top:2rem;">
+    CEMS 에너지 절감 대시보드 · 절감 베이스라인 검증 시스템
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
