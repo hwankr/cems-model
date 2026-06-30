@@ -56,6 +56,57 @@ class WebContentTest(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, script)
 
+    def test_school_hourly_web_is_separate_and_self_contained(self):
+        html = (ROOT / "school_hourly_web" / "index.html").read_text(encoding="utf-8")
+
+        required_phrases = [
+            "학교 전체 시간 단위 예측",
+            "기존 17개 건물 비교 모델과 분리된 별도 웹",
+            "2026-06-01 00:00 ~ 2026-06-29 23:00",
+            "2026-06-30 제외",
+            "day-ahead + operational 비교",
+            "직전 관측값까지 사용",
+            "LightGBM day-ahead + weather + academic",
+            "2.44% 숫자의 의미",
+            "공식 day-ahead WAPE는 6.73%",
+            "예보 날씨와 학사일정",
+            "last day same hour",
+            "last week same hour",
+            "시간대별 성능",
+            "오차 상위 시간",
+            "MAE",
+            "RMSE",
+            "WAPE",
+            "Bias",
+        ]
+
+        for phrase in required_phrases:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, html)
+
+    def test_school_hourly_web_loads_generated_outputs(self):
+        script = (ROOT / "school_hourly_web" / "app.js").read_text(encoding="utf-8")
+
+        required_phrases = [
+            "../outputs/school_hourly_predictions.csv",
+            "../outputs/school_hourly_model_comparison.csv",
+            "../outputs/school_hourly_metrics_by_hour.csv",
+            "../outputs/school_hourly_metrics_by_day.csv",
+            "../outputs/school_hourly_top_errors.csv",
+            "../outputs/school_hourly_run_summary.json",
+            "pred_lightgbm_school_hourly_day_ahead_kwh",
+            "pred_lightgbm_school_hourly_day_ahead_weather_kwh",
+            "pred_lightgbm_school_hourly_day_ahead_weather_academic_kwh",
+            "pred_lightgbm_school_hourly_operational_kwh",
+            "renderHourlyChart",
+            "renderModelComparison",
+            "renderTopErrors",
+        ]
+
+        for phrase in required_phrases:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, script)
+
 
 if __name__ == "__main__":
     unittest.main()

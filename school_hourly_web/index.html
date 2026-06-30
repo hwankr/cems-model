@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>학교 전체 시간 단위 예측</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css?v=school-hourly-v1" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">school hourly forecast</p>
+          <h1>학교 전체 시간 단위 예측</h1>
+          <p class="subtitle">기존 17개 건물 비교 모델과 분리된 별도 웹</p>
+        </div>
+        <div class="status" id="loadStatus">CSV 읽는 중</div>
+      </header>
+
+      <section class="contract" aria-label="검증 조건">
+        <article>
+          <span>검증 기간</span>
+          <strong>2026-06-01 00:00 ~ 2026-06-29 23:00</strong>
+          <p>2026-06-30 제외: 원본이 10시까지만 있어 공식 점수에서 제외합니다.</p>
+        </article>
+        <article>
+          <span>예측 계약</span>
+          <strong>day-ahead + operational 비교</strong>
+          <p>공식 day-ahead는 당일 직전 관측값을 쓰지 않습니다. operational variant만 직전 관측값까지 사용합니다.</p>
+        </article>
+        <article>
+          <span>현재 champion</span>
+          <strong>LightGBM day-ahead + weather + academic</strong>
+          <p>전기 과거 패턴에 예보 날씨와 학사일정 feature를 붙인 공식 day-ahead 기준입니다.</p>
+        </article>
+      </section>
+
+      <section class="toolbar" aria-label="필터">
+        <div class="field">
+          <label for="methodSelect">모델</label>
+          <select id="methodSelect"></select>
+        </div>
+        <div class="field">
+          <label for="daySelect">날짜</label>
+          <select id="daySelect"></select>
+        </div>
+        <div class="field">
+          <label for="hourSelect">시간</label>
+          <select id="hourSelect"></select>
+        </div>
+        <button type="button" id="resetButton">초기화</button>
+      </section>
+
+      <section class="kpis" id="kpiGrid" aria-label="요약 지표"></section>
+
+      <section class="main-grid">
+        <section class="panel chart-panel" aria-label="시간대별 예측 그래프">
+          <div class="panel-heading">
+            <div>
+              <h2>실제값 / 예측값</h2>
+              <p id="chartSubtitle">검증 구간 전체</p>
+            </div>
+            <div class="legend">
+              <span><i class="swatch actual"></i>실제</span>
+              <span><i class="swatch predicted"></i>예측</span>
+            </div>
+          </div>
+          <div class="chart" id="hourlyChart"></div>
+        </section>
+
+        <section class="panel" aria-label="모델 비교">
+          <div class="panel-heading">
+            <div>
+              <h2>모델 비교</h2>
+              <p>MAE, RMSE, WAPE, Bias 기준</p>
+            </div>
+          </div>
+          <div class="table-wrap model-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>모델</th>
+                  <th>WAPE</th>
+                  <th>MAE</th>
+                  <th>RMSE</th>
+                  <th>Bias</th>
+                </tr>
+              </thead>
+              <tbody id="modelComparisonBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel" aria-label="해석">
+        <div class="panel-heading">
+          <div>
+            <h2>모델 해석</h2>
+            <p>학교 전체 부하를 한 시간 단위로 예측하는 독립 프로젝트입니다.</p>
+          </div>
+        </div>
+        <div class="explain-grid">
+          <article>
+            <strong>입력 데이터</strong>
+            <p>전기 시간별 데이터에 일별 예보 날씨와 학사일정 feature를 날짜 기준으로 붙입니다.</p>
+          </article>
+          <article>
+            <strong>feature</strong>
+            <p>비교 기준은 last day same hour, last week same hour, 같은 시간 7일 평균입니다. day-ahead 모델은 24시간 전, 168시간 전, 같은 시간 7일 평균을 씁니다.</p>
+          </article>
+          <article>
+            <strong>누수 방지</strong>
+            <p>day-ahead 모델은 당일 1시간 전 관측과 rolling feature를 제외합니다. operational 모델도 같은 timestamp의 usage_kwh는 쓰지 않습니다.</p>
+          </article>
+          <article>
+            <strong>2.44% 숫자의 의미</strong>
+            <p>LightGBM school hourly operational은 직전 관측값까지 쓰는 1시간 갱신 모델입니다. 외부 feature를 붙인 공식 day-ahead WAPE는 6.73%입니다.</p>
+          </article>
+          <article>
+            <strong>사용법</strong>
+            <p>전체 기간 추세를 보거나 특정 날짜/시간으로 좁혀서 오차가 커지는 시간대를 확인합니다.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="table-grid">
+        <section class="panel" aria-label="시간대별 성능">
+          <div class="panel-heading">
+            <div>
+              <h2>시간대별 성능</h2>
+              <p>선택 모델 기준으로 시간별 WAPE를 비교합니다.</p>
+            </div>
+          </div>
+          <div class="hour-bars" id="hourBars"></div>
+        </section>
+
+        <section class="panel" aria-label="일별 성능">
+          <div class="panel-heading">
+            <div>
+              <h2>일별 성능</h2>
+              <p>검증 기간 29일의 날짜별 오차입니다.</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>날짜</th>
+                  <th>WAPE</th>
+                  <th>MAE</th>
+                  <th>Bias</th>
+                </tr>
+              </thead>
+              <tbody id="dayMetricsBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel" aria-label="오차 상위 시간">
+        <div class="panel-heading">
+          <div>
+            <h2>오차 상위 시간</h2>
+            <p>선택 모델이 크게 빗나간 timestamp를 우선 보여줍니다.</p>
+          </div>
+        </div>
+        <div class="table-wrap top-error-table">
+          <table>
+            <thead>
+              <tr>
+                <th>timestamp</th>
+                <th>실제</th>
+                <th>예측</th>
+                <th>오차</th>
+                <th>절대오차</th>
+              </tr>
+            </thead>
+            <tbody id="topErrorsBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js?v=school-hourly-v1"></script>
+  </body>
+</html>

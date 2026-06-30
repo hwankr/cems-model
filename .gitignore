@@ -8,3 +8,10 @@ node_modules/
 .env
 .env.*
 !.env.example
+
+# Local tooling / orchestration scratch (machine-specific, not for the repo)
+.claude/
+.superpowers/
+
+# Raw split dataset (large; kept out of the public repo — see docs/GUIDE.md for the path)
+school_power_usage_split/

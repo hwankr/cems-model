@@ -1,0 +1,15 @@
+{
+  "model_family": "school_hourly",
+  "target_column": "usage_kwh",
+  "prediction_column": "pred_lightgbm_school_hourly_day_ahead_weather_academic_kwh",
+  "champion_model": "lightgbm_school_hourly_day_ahead_weather_academic",
+  "validation_start": "2026-06-01 00:00:00",
+  "validation_end": "2026-06-29 23:00:00",
+  "validation_rows": 696,
+  "validation_days": 29,
+  "champion_wape": 0.06731579281584096,
+  "champion_mae_kwh": 200.23228810828698,
+  "champion_rmse_kwh": 347.3789683965013,
+  "official_scoring_note": "2026-06-30 is excluded because the source day is incomplete.",
+  "forecast_contract": "Official score uses a day-ahead feature contract that excludes same-day one-hour lag and rolling features. The operational variant is reported separately for one-hour rolling updates."
+}
